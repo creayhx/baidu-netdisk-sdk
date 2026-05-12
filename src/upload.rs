@@ -239,15 +239,154 @@ pub struct PrecreateResponse {
     pub block_list: Vec<u32>,
 }
 
+/// Server info for locate upload response
+#[derive(Debug, Deserialize)]
+pub struct LocateUploadServer {
+    /// Server URL
+    pub server: String,
+}
+
+/// Locate upload response
+#[derive(Debug, Deserialize)]
+pub struct LocateUploadResponse {
+    /// Backup servers
+    #[serde(default)]
+    pub bak_server: Vec<String>,
+    /// Backup servers list
+    #[serde(default)]
+    pub bak_servers: Vec<LocateUploadServer>,
+    /// Client IP address
+    pub client_ip: String,
+    /// Error code (0 indicates success)
+    pub error_code: i32,
+    /// Error message
+    pub error_msg: String,
+    /// Expiration time in seconds
+    pub expire: i32,
+    /// Host name
+    pub host: String,
+    /// New number
+    #[serde(default)]
+    pub newno: String,
+    /// QUIC servers
+    #[serde(default)]
+    pub quic_server: Vec<String>,
+    /// QUIC servers list
+    #[serde(default)]
+    pub quic_servers: Vec<LocateUploadServer>,
+    /// Request ID
+    pub request_id: u64,
+    /// Servers list
+    #[serde(default)]
+    pub server: Vec<String>,
+    /// Server timestamp
+    pub server_time: u64,
+    /// Servers list (detailed)
+    pub servers: Vec<LocateUploadServer>,
+    /// SL value
+    pub sl: i32,
+}
+
+impl LocateUploadResponse {
+    /// Get all HTTPS servers from the response
+    ///
+    /// Returns a vector of HTTPS server URLs that can be used for uploading chunks.
+    pub fn get_https_servers(&self) -> Vec<String> {
+        self.servers
+            .iter()
+            .filter(|s| s.server.starts_with("https://"))
+            .map(|s| s.server.clone())
+            .collect()
+    }
+
+    /// Get the first HTTPS server from the available servers
+    ///
+    /// According to Baidu NetDisk API documentation, the servers are sorted by proximity and speed.
+    /// The first server is recommended as the default choice for optimal upload performance.
+    ///
+    /// Returns `None` if no HTTPS servers are available.
+    pub fn get_first_https_server(&self) -> Option<String> {
+        let https_servers = self.get_https_servers();
+        if https_servers.is_empty() {
+            None
+        } else {
+            Some(https_servers[0].clone())
+        }
+    }
+}
+
 impl UploadClient {
+    /// Locate upload domain
+    ///
+    /// Gets the upload domain before uploading chunks.
+    /// This is required before uploading file data.
+    ///
+    /// According to Baidu NetDisk API documentation, the servers are sorted by proximity and speed.
+    /// The first server is recommended as the default choice for optimal upload performance.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use baidu_netdisk_sdk::BaiduNetDiskClient;
+    ///
+    /// let client = BaiduNetDiskClient::builder().build()?;
+    /// let token = client.load_token_from_env()?;
+    ///
+    /// let response = client.upload()
+    ///     .locate_upload(&token, "/apps/appName/filename.jpg", "P1-MTAuMjI4LjQzLjMxOjE1OTU4NTg==")
+    ///     .await?;
+    ///
+    /// // Get the first HTTPS server (recommended by Baidu for optimal performance)
+    /// if let Some(server) = response.get_first_https_server() {
+    ///     println!("Upload server: {}", server);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn locate_upload(
+        &self,
+        access_token: &AccessToken,
+        path: &str,
+        uploadid: &str,
+    ) -> NetDiskResult<LocateUploadResponse> {
+        let url = format!(
+            "https://d.pcs.baidu.com/rest/2.0/pcs/file?method=locateupload&appid=250528&access_token={}&path={}&uploadid={}&upload_version=2.0",
+            urlencoding::encode(&access_token.access_token),
+            urlencoding::encode(path),
+            urlencoding::encode(uploadid)
+        );
+
+        debug!("Locate upload: path={}, uploadid={}", path, uploadid);
+
+        let response: LocateUploadResponse = self.http_client.get(&url, None).await?;
+
+        if response.error_code != 0 {
+            return Err(NetDiskError::api_error(response.error_code, &response.error_msg));
+        }
+
+        debug!(
+            "Locate upload success: host={}, servers={}",
+            response.host,
+            response.servers.len()
+        );
+
+        Ok(response)
+    }
+
     /// Upload a single chunk
+    ///
+    /// If `server_url` is not provided, the default server `https://c3.pcs.baidu.com` will be used.
     pub async fn upload_chunk(
         &self,
         access_token: &AccessToken,
         options: UploadChunkOptions,
+        server_url: Option<&str>,
     ) -> NetDiskResult<UploadChunkResponse> {
+        let server = server_url.unwrap_or("https://c3.pcs.baidu.com");
         let url = format!(
-            "https://c3.pcs.baidu.com/rest/2.0/pcs/superfile2?method=upload&access_token={}&type=tmpfile&path={}&uploadid={}&partseq={}",
+            "{}/rest/2.0/pcs/superfile2?method=upload&access_token={}&type=tmpfile&path={}&uploadid={}&partseq={}",
+            server,
             urlencoding::encode(&access_token.access_token),
             urlencoding::encode(&options.path),
             urlencoding::encode(&options.uploadid),
@@ -255,11 +394,12 @@ impl UploadClient {
         );
 
         debug!(
-            "Upload chunk: path={}, uploadid={}, partseq={}, data_size={}",
+            "Upload chunk: path={}, uploadid={}, partseq={}, data_size={}, server={}",
             options.path,
             options.uploadid,
             options.partseq,
-            options.data.len()
+            options.data.len(),
+            server
         );
 
         let response: UploadChunkResponse = self
@@ -276,6 +416,8 @@ impl UploadClient {
     }
 
     /// Upload multiple chunks in parallel
+    ///
+    /// If `server_url` is not provided, the default server `https://c3.pcs.baidu.com` will be used.
     pub async fn upload_chunks_parallel(
         &self,
         access_token: &AccessToken,
@@ -283,11 +425,15 @@ impl UploadClient {
         uploadid: &str,
         chunks: Vec<(u32, Vec<u8>)>,
         max_concurrency: usize,
+        server_url: Option<&str>,
     ) -> NetDiskResult<Vec<(u32, String)>> {
+        let server = server_url.unwrap_or("https://c3.pcs.baidu.com").to_string();
+        
         debug!(
-            "Uploading {} chunks in parallel (max_concurrency: {})",
+            "Uploading {} chunks in parallel (max_concurrency: {}, server: {})",
             chunks.len(),
-            max_concurrency
+            max_concurrency,
+            server
         );
 
         let access_token_str = access_token.access_token.clone();
@@ -296,15 +442,17 @@ impl UploadClient {
         let http_client = self.http_client.clone();
 
         let mut stream = stream::iter(chunks)
-            .map(|(partseq, data)| {
+            .map(move |(partseq, data)| {
                 let path = remote_path_str.clone();
                 let uid = access_token_str.clone();
                 let upid = uploadid_str.clone();
                 let client = http_client.clone();
+                let server_clone = server.clone();
 
                 async move {
                     let url = format!(
-                        "https://c3.pcs.baidu.com/rest/2.0/pcs/superfile2?method=upload&access_token={}&type=tmpfile&path={}&uploadid={}&partseq={}",
+                        "{}/rest/2.0/pcs/superfile2?method=upload&access_token={}&type=tmpfile&path={}&uploadid={}&partseq={}",
+                        server_clone,
                         urlencoding::encode(&uid),
                         urlencoding::encode(&path),
                         urlencoding::encode(&upid),
@@ -858,6 +1006,16 @@ impl UploadClient {
         );
 
         if !missing_blocks.is_empty() {
+            // Get upload server domain dynamically
+            let locate_response = self
+                .locate_upload(access_token, remote_path, &precreate_response.uploadid)
+                .await?;
+            let upload_server = locate_response.get_first_https_server();
+            debug!(
+                "Located upload server: {:?}",
+                upload_server
+            );
+
             let missing_blocks_set: std::collections::HashSet<u32> =
                 missing_blocks.into_iter().collect();
 
@@ -899,6 +1057,7 @@ impl UploadClient {
                             &precreate_response.uploadid,
                             std::mem::take(&mut pending_chunks),
                             max_concurrency,
+                            upload_server.as_deref(),
                         )
                         .await?;
 
@@ -1037,6 +1196,16 @@ impl UploadClient {
             .collect();
 
         if !chunks_to_upload.is_empty() {
+            // Get upload server domain dynamically
+            let locate_response = self
+                .locate_upload(access_token, remote_path, &precreate_response.uploadid)
+                .await?;
+            let upload_server = locate_response.get_first_https_server();
+            debug!(
+                "Located upload server: {:?}",
+                upload_server
+            );
+
             let chunk_results = self
                 .upload_chunks_parallel(
                     access_token,
@@ -1044,6 +1213,7 @@ impl UploadClient {
                     &precreate_response.uploadid,
                     chunks_to_upload,
                     max_concurrency,
+                    upload_server.as_deref(),
                 )
                 .await?;
 
