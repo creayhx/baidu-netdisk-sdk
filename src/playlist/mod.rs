@@ -177,7 +177,6 @@ impl AudioQuality {
 #[derive(Debug, Clone)]
 pub struct PlaylistClient {
     http_client: HttpClient,
-    app_id: Option<String>,
 }
 
 impl PlaylistClient {
@@ -187,54 +186,15 @@ impl PlaylistClient {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use baidu_netdisk_sdk::http::HttpClient;
+    /// ```no_run
+    /// use baidu_netdisk_sdk::http::{HttpClient, HttpClientConfig};
     /// use baidu_netdisk_sdk::playlist::PlaylistClient;
     ///
-    /// let http_client = HttpClient::new();
+    /// let http_client = HttpClient::new(HttpClientConfig::default()).unwrap();
     /// let playlist_client = PlaylistClient::new(http_client);
     /// ```
     pub fn new(http_client: HttpClient) -> Self {
-        PlaylistClient {
-            http_client,
-            app_id: None,
-        }
-    }
-
-    /// Create a new PlaylistClient instance with app_id
-    ///
-    /// Some API endpoints may require an app_id for authentication.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use baidu_netdisk_sdk::http::HttpClient;
-    /// use baidu_netdisk_sdk::playlist::PlaylistClient;
-    ///
-    /// let http_client = HttpClient::new();
-    /// let playlist_client = PlaylistClient::new_with_app_id(http_client, "123456".to_string());
-    /// ```
-    pub fn new_with_app_id(http_client: HttpClient, app_id: String) -> Self {
-        PlaylistClient {
-            http_client,
-            app_id: Some(app_id),
-        }
-    }
-
-    /// Set app_id for API authentication
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use baidu_netdisk_sdk::http::HttpClient;
-    /// use baidu_netdisk_sdk::playlist::PlaylistClient;
-    ///
-    /// let http_client = HttpClient::new();
-    /// let mut playlist_client = PlaylistClient::new(http_client);
-    /// playlist_client.set_app_id("123456".to_string());
-    /// ```
-    pub fn set_app_id(&mut self, app_id: String) {
-        self.app_id = Some(app_id);
+        PlaylistClient { http_client }
     }
 
     /// Get a list of playlists with default options
@@ -443,10 +403,6 @@ impl PlaylistClient {
             params.push(("path", p.to_string()));
         }
 
-        if let Some(app_id) = &self.app_id {
-            params.push(("app_id", app_id.clone()));
-        }
-
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
         let headers = [
@@ -576,16 +532,12 @@ impl PlaylistClient {
         path: &str,
         media_type: &str,
     ) -> NetDiskResult<String> {
-        let mut params = vec![
+        let params = vec![
             ("method", "streaming".to_string()),
             ("access_token", access_token.access_token.clone()),
             ("path", path.to_string()),
             ("type", media_type.to_string()),
         ];
-
-        if let Some(app_id) = &self.app_id {
-            params.push(("app_id", app_id.clone()));
-        }
 
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
