@@ -328,10 +328,7 @@ impl ClientBuilder {
         let file_client = FileClient::new(http_client.clone());
         let download_client = DownloadClient::new(file_client.clone());
         let upload_client = UploadClient::new(http_client.clone());
-        let mut playlist_client = PlaylistClient::new(http_client.clone());
-        if !self.config.app_id.is_empty() {
-            playlist_client.set_app_id(self.config.app_id.clone());
-        }
+        let playlist_client = PlaylistClient::new(http_client.clone());
 
         Ok(BaiduNetDiskClient {
             token_provider,
