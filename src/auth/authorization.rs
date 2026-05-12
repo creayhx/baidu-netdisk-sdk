@@ -21,7 +21,7 @@ use crate::http::HttpClient;
 ///     .app_key("your_app_key")
 ///     .app_secret("your_app_secret")
 ///     .build()?;
-/// let auth = client.authorization();
+/// let auth = client.authorize();
 ///
 /// // Get device code
 /// let device_code = auth.get_device_code().await?;
@@ -71,7 +71,7 @@ impl Authorization {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let auth = client.authorization();
+    /// let auth = client.authorize();
     /// let device_code = auth.get_device_code().await?;
     /// println!("Please visit: {}", device_code.verification_url);
     /// # Ok(())
@@ -123,7 +123,7 @@ impl Authorization {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let auth = client.authorization();
+    /// let auth = client.authorize();
     /// let device_code = auth.get_device_code().await?;
     ///
     /// // Poll for token

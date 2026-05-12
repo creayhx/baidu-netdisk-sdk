@@ -40,7 +40,6 @@ impl Default for TokenProviderConfig {
 ///
 /// ```
 /// use baidu_netdisk_sdk::BaiduNetDiskClient;
-/// use baidu_netdisk_sdk::auth::{TokenProvider, TokenProviderConfig};
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = BaiduNetDiskClient::builder()
@@ -48,8 +47,8 @@ impl Default for TokenProviderConfig {
 ///     .app_secret("your_app_secret")
 ///     .build()?;
 ///
-/// // Create provider with default config
-/// let provider = client.token_provider(TokenProviderConfig::default());
+/// // Get token provider
+/// let provider = client.token_provider();
 ///
 /// // Load or set token
 /// // let token = provider.load_from_file("token.json")?;
@@ -98,11 +97,10 @@ impl TokenProvider {
     ///
     /// ```
     /// use baidu_netdisk_sdk::BaiduNetDiskClient;
-    /// use baidu_netdisk_sdk::auth::{TokenProvider, TokenProviderConfig};
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let provider = client.token_provider(TokenProviderConfig::default());
+    /// let provider = client.token_provider();
     /// // After setting token...
     /// // let token_str = provider.get_access_token()?;
     /// # Ok(())
@@ -134,11 +132,11 @@ impl TokenProvider {
     ///
     /// ```
     /// use baidu_netdisk_sdk::BaiduNetDiskClient;
-    /// use baidu_netdisk_sdk::auth::{TokenProvider, TokenProviderConfig, TokenStatus};
+    /// use baidu_netdisk_sdk::auth::TokenStatus;
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let provider = client.token_provider(TokenProviderConfig::default());
+    /// let provider = client.token_provider();
     /// // After setting token...
     /// // let status = provider.validate_token()?;
     /// // match status {
@@ -167,11 +165,11 @@ impl TokenProvider {
     ///
     /// ```
     /// use baidu_netdisk_sdk::BaiduNetDiskClient;
-    /// use baidu_netdisk_sdk::auth::{TokenProvider, TokenProviderConfig, AccessToken};
+    /// use baidu_netdisk_sdk::auth::AccessToken;
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let provider = client.token_provider(TokenProviderConfig::default());
+    /// let provider = client.token_provider();
     /// // After getting token from authorization...
     /// // provider.set_access_token(token)?;
     /// # Ok(())
@@ -226,14 +224,13 @@ impl TokenProvider {
     ///
     /// ```
     /// use baidu_netdisk_sdk::BaiduNetDiskClient;
-    /// use baidu_netdisk_sdk::auth::{TokenProvider, TokenProviderConfig};
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder()
     ///     .app_key("your_app_key")
     ///     .app_secret("your_app_secret")
     ///     .build()?;
-    /// let provider = client.token_provider(TokenProviderConfig::default());
+    /// let provider = client.token_provider();
     /// // After setting token...
     /// // let new_token = provider.refresh_token().await?;
     /// # Ok(())
@@ -314,11 +311,10 @@ impl TokenProvider {
     ///
     /// ```
     /// use baidu_netdisk_sdk::BaiduNetDiskClient;
-    /// use baidu_netdisk_sdk::auth::{TokenProvider, TokenProviderConfig};
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let provider = client.token_provider(TokenProviderConfig::default());
+    /// let provider = client.token_provider();
     /// // After setting token...
     /// // let token = provider.get_valid_token().await?;
     /// // Use token for API calls...
@@ -375,11 +371,10 @@ impl TokenProvider {
     ///
     /// ```
     /// use baidu_netdisk_sdk::BaiduNetDiskClient;
-    /// use baidu_netdisk_sdk::auth::{TokenProvider, TokenProviderConfig};
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let provider = client.token_provider(TokenProviderConfig::default());
+    /// let provider = client.token_provider();
     /// // provider.clear_token()?;
     /// # Ok(())
     /// # }

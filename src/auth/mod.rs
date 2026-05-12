@@ -13,7 +13,6 @@
 //!
 //! ```
 //! use baidu_netdisk_sdk::BaiduNetDiskClient;
-//! use baidu_netdisk_sdk::auth::{Authorization, TokenProvider, TokenProviderConfig};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = BaiduNetDiskClient::builder()
@@ -22,7 +21,7 @@
 //!     .build()?;
 //!
 //! // Device code authorization
-//! let auth = client.authorization();
+//! let auth = client.authorize();
 //! let device_code = auth.get_device_code().await?;
 //! println!("Please visit: {} and enter code: {}",
 //!     device_code.verification_url,
@@ -38,7 +37,7 @@
 //! };
 //!
 //! // Use token provider for auto-refresh
-//! let provider = client.token_provider(TokenProviderConfig::default());
+//! let provider = client.token_provider();
 //! provider.set_access_token(token)?;
 //!
 //! // Get valid token (auto-refreshes if needed)
