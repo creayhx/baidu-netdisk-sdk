@@ -19,7 +19,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-baidu-netdisk-sdk = "0.1.1"
+baidu-netdisk-sdk = "0.1.2"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
@@ -58,17 +58,17 @@ let token = loop {
 ### 3. File Operations
 
 ```rust
-// List files
-let files = client.file().list(&token, "/", 20, 0).await?;
+// List directory
+let files = client.file().list_directory(&token, "/").await?;
 
 // Search files
-let results = client.file()
-    .search(&token, "documents", 20, 0)
+let (results, has_more) = client.file()
+    .search_files(&token, "documents", "/")
     .await?;
 
 // Upload file
 client.upload()
-    .upload_file(&token, "/remote/path.txt", "local/path.txt", 10)
+    .upload_file(&token, "local/path.txt", "/remote/path.txt")
     .await?;
 
 // Download file
@@ -151,8 +151,8 @@ Core file operations:
 - `semantic_search()` - Semantic search
 - `create_folder()` - Create directory
 - `rename()` - Rename file/folder
-- `move()` - Move file/folder
-- `copy()` - Copy file/folder
+- `move_file()` - Move file/folder
+- `copy_file()` - Copy file/folder
 - `delete()` - Delete file/folder
 
 ### Download (`client.download()`)
@@ -427,7 +427,7 @@ client.download()
 
 // For maximum speed with large files (6+ cores recommended)
 client.download()
-    .download_parallel(&token, "/remote/large.iso", "./local/large.iso", 8)
+    .download_parallel(&token, "/remote/large.iso", "./local/large.iso", Some(8))
     .await?;
 
 // For many small files or limited cores (<= 4)

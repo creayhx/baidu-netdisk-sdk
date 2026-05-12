@@ -19,7 +19,7 @@
 
 ```toml
 [dependencies]
-baidu-netdisk-sdk = "0.1.1"
+baidu-netdisk-sdk = "0.1.2"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
@@ -58,12 +58,12 @@ let token = loop {
 ### 3. 文件操作
 
 ```rust
-// 列出文件
-let files = client.file().list(&token, "/", 20, 0).await?;
+// 列出目录
+let files = client.file().list_directory(&token, "/").await?;
 
 // 搜索文件
-let results = client.file()
-    .search(&token, "文档", 20, 0)
+let (results, has_more) = client.file()
+    .search_files(&token, "文档", "/")
     .await?;
 
 // 上传文件
@@ -151,8 +151,8 @@ let client = BaiduNetDiskClient::builder()
 - `semantic_search()` - 语义搜索
 - `create_folder()` - 创建目录
 - `rename()` - 重命名文件/文件夹
-- `move()` - 移动文件/文件夹
-- `copy()` - 复制文件/文件夹
+- `move_file()` - 移动文件/文件夹
+- `copy_file()` - 复制文件/文件夹
 - `delete()` - 删除文件/文件夹
 
 ### 下载 (`client.download()`)
@@ -276,13 +276,13 @@ println!("已上传: {} 字节", response.size);
 - `client.user().info()` - 获取用户信息
 - `client.quota().info()` - 获取存储配额信息
 
-### 播放列表 (`client.playlist()`)
+### 播单 (`client.playlist()`)
 
-播放列表和媒体功能：
+播单和媒体功能：
 
-**播放列表操作：**
-- `get_playlist_list()` - 列出播放列表
-- `get_playlist_file_list()` - 列出播放列表中的文件
+**播单操作：**
+- `get_playlist_list()` - 列出播单
+- `get_playlist_file_list()` - 列出播单中的文件
 
 **媒体播放：**
 - `get_media_play_info()` - 获取媒体播放信息（支持路径或 fs_id）
@@ -381,7 +381,7 @@ cargo run --example user_info
 # 配额信息
 cargo run --example quota
 
-# 播放列表
+# 播单
 cargo run --example playlist
 ```
 
@@ -427,7 +427,7 @@ client.download()
 
 // 大文件追求最大速度（推荐 6+ 核心）
 client.download()
-    .download_parallel(&token, "/remote/large.iso", "./local/large.iso", 8)
+    .download_parallel(&token, "/remote/large.iso", "./local/large.iso", Some(8))
     .await?;
 
 // 多个小文件或核心受限（<= 4）
