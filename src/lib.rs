@@ -66,6 +66,7 @@ pub use crate::playlist::{
 };
 pub use crate::quota::CapacityInfo;
 pub use crate::upload::{
-    CreateFileOptions, CreateFileResponse, PrecreateOptions, PrecreateResponse,
-    SimpleUploadOptions, UploadChunkOptions, UploadChunkResponse, UploadClient,
+    CreateFileOptions, CreateFileResponse, LocateUploadResponse, LocateUploadServer,
+    PrecreateOptions, PrecreateResponse, SimpleUploadOptions, UploadChunkOptions,
+    UploadChunkResponse, UploadClient,
 };
