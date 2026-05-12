@@ -24,8 +24,8 @@
 //! // Device code authorization
 //! let auth = client.authorization();
 //! let device_code = auth.get_device_code().await?;
-//! println!("Please visit: {} and enter code: {}", 
-//!     device_code.verification_url, 
+//! println!("Please visit: {} and enter code: {}",
+//!     device_code.verification_url,
 //!     device_code.user_code
 //! );
 //!

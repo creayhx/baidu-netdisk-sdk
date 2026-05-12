@@ -102,7 +102,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 println!("  Found {} file(s) in playlist:", pl_files.list.len());
                 for (idx, file) in pl_files.list.iter().enumerate() {
-                    println!("    {}. {}", idx + 1, file.server_filename.as_deref().unwrap_or("(no name)"));
+                    println!(
+                        "    {}. {}",
+                        idx + 1,
+                        file.server_filename.as_deref().unwrap_or("(no name)")
+                    );
                     println!("       fs_id: {}", file.fs_id);
                     println!("       path: {}", file.path);
                     if let Some(size) = &file.size {

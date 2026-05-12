@@ -1,4 +1,4 @@
-use baidu_netdisk_sdk::{BaiduNetDiskClient};
+use baidu_netdisk_sdk::BaiduNetDiskClient;
 use log::info;
 use std::io::{self, BufRead};
 

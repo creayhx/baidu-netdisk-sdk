@@ -57,9 +57,8 @@ pub use crate::download::DownloadClient;
 pub use crate::errors::{NetDiskError, NetDiskResult};
 pub use crate::file::{
     BtListOptions, Category, CategoryCountOptions, CategorySearchOptions, DocumentListOptions,
-    FileClient, FileInfo, FileMeta,
-    FolderCreateOptions, FolderInfo, ImageListOptions, ListAllOptions, ListOptions, SearchOptions,
-    SemanticSearchOptions, VideoListOptions,
+    FileClient, FileInfo, FileMeta, FolderCreateOptions, FolderInfo, ImageListOptions,
+    ListAllOptions, ListOptions, SearchOptions, SemanticSearchOptions, VideoListOptions,
 };
 pub use crate::playlist::{
     MediaFile, MediaFileEntry, MediaInfo, MediaPlayInfo, MediaStream, PlaylistClient,
@@ -67,6 +66,6 @@ pub use crate::playlist::{
 };
 pub use crate::quota::CapacityInfo;
 pub use crate::upload::{
-    CreateFileOptions, CreateFileResponse, PrecreateOptions, PrecreateResponse, UploadChunkOptions,
-    UploadChunkResponse, UploadClient,
+    CreateFileOptions, CreateFileResponse, PrecreateOptions, PrecreateResponse,
+    SimpleUploadOptions, UploadChunkOptions, UploadChunkResponse, UploadClient,
 };

@@ -1,5 +1,6 @@
 use baidu_netdisk_sdk::BaiduNetDiskClient;
 use log::info;
+use std::io::BufReader;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,25 +14,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args: Vec<String> = std::env::args().collect();
 
-    if args.len() < 3 {
-        println!("Usage: {} <local_file> <remote_path>", args[0]);
-        println!("Example: {} test.txt /apps/test/test.txt", args[0]);
+    let local_file = if args.len() >= 2 {
+        &args[1]
+    } else {
+        println!("Usage: {} <local_file> [remote_path]", args[0]);
+        println!("Example: {} test.txt /upload/test.txt", args[0]);
         return Ok(());
-    }
+    };
 
-    let local_file = &args[1];
-    let remote_path = &args[2];
+    let remote_path = if args.len() >= 3 {
+        &args[2]
+    } else {
+        "/upload/test_reader.txt"
+    };
 
-    println!("=== Baidu NetDisk File Upload (Simple) ===");
+    println!("=== Baidu NetDisk Reader Upload ===");
     println!("Local file: {}", local_file);
     println!("Remote path: {}", remote_path);
     println!();
+
+    let file = std::fs::File::open(local_file)?;
+    let metadata = file.metadata()?;
+    let file_size = metadata.len();
+
+    println!("File size: {} bytes", file_size);
+
+    let mut reader = BufReader::new(file);
 
     let start_time = std::time::Instant::now();
 
     let response = client
         .upload()
-        .upload_file(&token, local_file, remote_path)
+        .upload_reader(&token, &mut reader, file_size, remote_path)
         .await?;
 
     println!("File uploaded successfully!");

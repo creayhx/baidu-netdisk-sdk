@@ -1,9 +1,9 @@
 //! File query module
 //!
 //! Provides file and folder query functionality (list, get info, get metadata)
-use std::future::Future;
 use log::{debug, info};
 use serde::Deserialize;
+use std::future::Future;
 
 use super::FileClient;
 use crate::auth::AccessToken;

@@ -30,7 +30,7 @@
 //! # }
 //! ```
 
-use log::{debug, info, error};
+use log::{debug, error, info};
 use serde::Deserialize;
 
 use crate::auth::AccessToken;
@@ -450,7 +450,10 @@ impl PlaylistClient {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
         let headers = [
-            ("User-Agent", "xpanvideo;netdisk;iPhone13;ios-iphone;15.1;ts"),
+            (
+                "User-Agent",
+                "xpanvideo;netdisk;iPhone13;ios-iphone;15.1;ts",
+            ),
             ("Host", "pan.baidu.com"),
             ("Accept", "*/*"),
             ("Accept-Language", "zh-CN,zh;q=0.9"),
@@ -495,16 +498,16 @@ impl PlaylistClient {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn fetch_m3u8(
-        &self,
-        m3u8_url: &str,
-    ) -> NetDiskResult<String> {
+    pub async fn fetch_m3u8(&self, m3u8_url: &str) -> NetDiskResult<String> {
         debug!("Fetching m3u8 content from: {}", m3u8_url);
 
         let client = reqwest::Client::new();
         let response = client
             .get(m3u8_url)
-            .header("User-Agent", "xpanvideo;netdisk;iPhone13;ios-iphone;15.1;ts")
+            .header(
+                "User-Agent",
+                "xpanvideo;netdisk;iPhone13;ios-iphone;15.1;ts",
+            )
             .header("Host", "pan.baidu.com")
             .send()
             .await?;
@@ -516,7 +519,10 @@ impl PlaylistClient {
         }
 
         let content = response.text().await?;
-        debug!("Successfully fetched m3u8 content, length: {}", content.len());
+        debug!(
+            "Successfully fetched m3u8 content, length: {}",
+            content.len()
+        );
 
         Ok(content)
     }
@@ -536,10 +542,7 @@ impl PlaylistClient {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn is_media_fully_transcoded(
-        &self,
-        m3u8_url: &str,
-    ) -> NetDiskResult<bool> {
+    pub async fn is_media_fully_transcoded(&self, m3u8_url: &str) -> NetDiskResult<bool> {
         let content = self.fetch_m3u8(m3u8_url).await?;
         Ok(content.contains("#EXT-X-ENDLIST"))
     }
@@ -586,7 +589,10 @@ impl PlaylistClient {
 
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
-        debug!("Getting raw m3u8 content for path: {}, type: {}", path, media_type);
+        debug!(
+            "Getting raw m3u8 content for path: {}, type: {}",
+            path, media_type
+        );
 
         let mut url = reqwest::Url::parse("https://pan.baidu.com/rest/2.0/xpan/file")?;
         {
@@ -601,7 +607,10 @@ impl PlaylistClient {
         let client = reqwest::Client::new();
         let response = client
             .get(url.clone())
-            .header("User-Agent", "xpanvideo;netdisk;iPhone13;ios-iphone;15.1;ts")
+            .header(
+                "User-Agent",
+                "xpanvideo;netdisk;iPhone13;ios-iphone;15.1;ts",
+            )
             .header("Host", "pan.baidu.com")
             .header("Accept", "*/*")
             .header("Accept-Language", "zh-CN,zh;q=0.9")
@@ -616,7 +625,10 @@ impl PlaylistClient {
         }
 
         let content = response.text().await?;
-        debug!("Successfully fetched m3u8 content, length: {}", content.len());
+        debug!(
+            "Successfully fetched m3u8 content, length: {}",
+            content.len()
+        );
 
         Ok(content)
     }

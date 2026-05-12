@@ -13,28 +13,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args: Vec<String> = std::env::args().collect();
 
-    if args.len() < 3 {
-        println!("Usage: {} <local_file> <remote_path>", args[0]);
-        println!("Example: {} test.txt /apps/test/test.txt", args[0]);
-        return Ok(());
-    }
+    let remote_path = if args.len() >= 2 {
+        &args[1]
+    } else {
+        "/upload/hello_bytes.txt"
+    };
 
-    let local_file = &args[1];
-    let remote_path = &args[2];
-
-    println!("=== Baidu NetDisk File Upload (Simple) ===");
-    println!("Local file: {}", local_file);
+    println!("=== Baidu NetDisk Bytes Upload (Simple) ===");
     println!("Remote path: {}", remote_path);
     println!();
+
+    let test_data = b"Hello from upload_bytes! This is a simple byte array upload test.";
+    println!("Uploading {} bytes of data...", test_data.len());
 
     let start_time = std::time::Instant::now();
 
     let response = client
         .upload()
-        .upload_file(&token, local_file, remote_path)
+        .upload_bytes(&token, test_data, remote_path)
         .await?;
 
-    println!("File uploaded successfully!");
+    println!("Bytes uploaded successfully!");
     println!("  FS ID: {}", response.fs_id);
     println!("  Server filename: {:?}", response.server_filename);
     println!("  Path: {}", response.path);

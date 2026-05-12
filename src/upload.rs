@@ -1,32 +1,59 @@
 //! File upload functionality for Baidu NetDisk
 //!
-//! This module provides multi-step file upload capability:
-//! 1. Precreate - Initiate the upload and check for existing chunks
-//! 2. Upload Chunks - Upload individual file chunks
-//! 3. Create File - Merge chunks into a final file on the server
+//! This module provides comprehensive file upload capabilities with support for:
+//! - Simple file upload via path
+//! - Reader-based upload for streaming data
+//! - Byte array upload for in-memory data
+//! - Resumable upload (automatic detection of partially uploaded chunks)
+//! - Parallel chunk upload for better performance
 //!
-//! # Quick Start
+//! # Architecture
 //!
-//! ```
-//! use baidu_netdisk_sdk::{BaiduNetDiskClient, upload::PrecreateOptions};
+//! The upload process consists of 3 steps:
+//! 1. **Precreate** - Initiate upload session, get uploadid, and check existing chunks
+//! 2. **Upload Chunks** - Upload missing chunks in parallel
+//! 3. **Create File** - Merge chunks into final file on server
+//!
+//! # Upload Methods Comparison
+//!
+//! | Method | Data Source | Memory Usage | Streaming | Use Case |
+//! |--------|-------------|--------------|-----------|----------|
+//! | [`UploadClient::upload_file`] | File path | ~80MB | ✅ | Most common, upload from disk |
+//! | [`UploadClient::upload_reader`] | Reader + size | ~80MB | ✅ | Custom readers, wrapped streams |
+//! | [`UploadClient::upload_bytes`] | `&[u8]` slice | Full data | ❌ | Small data already in memory |
+//!
+//! # Memory Optimization
+//!
+//! For large files, memory usage is bounded by:
+//! - Batch size: `max_concurrency * 2` chunks (default: 20 * 4MB = 80MB)
+//! - Only missing chunks are copied to memory
+//! - Existing chunks are skipped automatically (resumable upload)
+//!
+//! # Example
+//!
+//! ```no_run
+//! use baidu_netdisk_sdk::BaiduNetDiskClient;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = BaiduNetDiskClient::builder().build()?;
 //! let token = client.load_token_from_env()?;
 //!
-//! // Assume we have a file and its block md5 list
-//! let block_list = vec!["md5_of_block1".to_string()];
-//! let options = PrecreateOptions::new("/test_file.txt", 1024, block_list);
+//! // Simple file upload
+//! let response = client.upload()
+//!     .upload_file(&token, "test.txt", "/remote/test.txt")
+//!     .await?;
 //!
-//! // Step 1: Precreate
-//! let precreate_resp = client.upload().precreate(&token, options).await?;
-//!
-//! // If needed, upload missing chunks
-//! // Step 2: Upload chunks
-//! // Step 3: Create final file
+//! println!("Uploaded: {} ({} bytes)", response.path, response.size);
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! # Low-level API
+//!
+//! For advanced use cases, you can use the step-by-step API:
+//! - [`UploadClient::precreate`] - Start upload session
+//! - [`UploadClient::upload_chunks_parallel`] - Upload specific chunks
+//! - [`UploadClient::create_file`] - Complete the upload
 use crate::auth::AccessToken;
 use crate::errors::{NetDiskError, NetDiskResult};
 use crate::http::HttpClient;
@@ -517,5 +544,533 @@ fn get_error_message(errno: i32) -> String {
         -7 => "File or directory name error or access denied".to_string(),
         -10 => "Insufficient capacity".to_string(),
         _ => format!("Unknown error: {}", errno),
+    }
+}
+
+const DEFAULT_CHUNK_SIZE: usize = 4 * 1024 * 1024;
+const DEFAULT_MAX_CONCURRENCY: usize = 10;
+
+#[derive(Debug, Clone)]
+/// Options for simple upload methods
+///
+/// Use the builder pattern to customize upload behavior:
+///
+/// # Example
+///
+/// ```
+/// use baidu_netdisk_sdk::upload::SimpleUploadOptions;
+///
+/// let options = SimpleUploadOptions::default()
+///     .chunk_size(8 * 1024 * 1024)  // 8MB chunks
+///     .max_concurrency(20)         // 20 parallel uploads
+///     .r#type(1);                  // file type
+/// ```
+///
+/// # Default Values
+///
+/// - `chunk_size`: 4MB (4194304 bytes)
+/// - `max_concurrency`: 10
+/// - `r#type`: 1
+pub struct SimpleUploadOptions {
+    /// Size of each chunk in bytes (default: 4MB)
+    pub chunk_size: usize,
+    /// Maximum number of parallel chunk uploads (default: 10)
+    pub max_concurrency: usize,
+    /// File type hint (default: 1)
+    pub r#type: i32,
+}
+
+impl Default for SimpleUploadOptions {
+    fn default() -> Self {
+        Self {
+            chunk_size: DEFAULT_CHUNK_SIZE,
+            max_concurrency: DEFAULT_MAX_CONCURRENCY,
+            r#type: 1,
+        }
+    }
+}
+
+impl SimpleUploadOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn chunk_size(mut self, size: usize) -> Self {
+        self.chunk_size = size;
+        self
+    }
+
+    pub fn max_concurrency(mut self, concurrency: usize) -> Self {
+        self.max_concurrency = concurrency;
+        self
+    }
+
+    pub fn r#type(mut self, r#type: i32) -> Self {
+        self.r#type = r#type;
+        self
+    }
+}
+
+impl UploadClient {
+    /// Upload a file from local path (simple API)
+    ///
+    /// This is the simplest way to upload a file. It handles everything automatically:
+    /// - Opens and reads the file
+    /// - Calculates MD5 for each chunk
+    /// - Uploads missing chunks in parallel
+    /// - Creates the final file on the server
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use baidu_netdisk_sdk::BaiduNetDiskClient;
+    ///
+    /// let client = BaiduNetDiskClient::builder().build()?;
+    /// let token = client.load_token_from_env()?;
+    ///
+    /// let response = client.upload()
+    ///     .upload_file(&token, "test.txt", "/remote/test.txt")
+    ///     .await?;
+    ///
+    /// println!("Uploaded: {} ({} bytes)", response.path, response.size);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # See Also
+    ///
+    /// - [`UploadClient::upload_file_with_options`] for custom chunk size and concurrency
+    /// - [`UploadClient::upload_reader`] for streaming upload with custom readers
+    /// - [`UploadClient::upload_bytes`] for uploading data already in memory
+    pub async fn upload_file<P: AsRef<std::path::Path>>(
+        &self,
+        access_token: &AccessToken,
+        local_path: P,
+        remote_path: &str,
+    ) -> NetDiskResult<CreateFileResponse> {
+        self.upload_file_with_options(
+            access_token,
+            local_path,
+            remote_path,
+            SimpleUploadOptions::default(),
+        )
+        .await
+    }
+
+    /// Upload a file from local path with custom options
+    ///
+    /// Use this method to customize upload behavior:
+    /// - `chunk_size`: Size of each chunk (default: 4MB)
+    /// - `max_concurrency`: Maximum parallel uploads (default: 10)
+    /// - `r#type`: File type hint (default: 1)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use baidu_netdisk_sdk::{BaiduNetDiskClient, upload::SimpleUploadOptions};
+    ///
+    /// let client = BaiduNetDiskClient::builder().build()?;
+    /// let token = client.load_token_from_env()?;
+    ///
+    /// let options = SimpleUploadOptions::default()
+    ///     .chunk_size(8 * 1024 * 1024)  // 8MB chunks
+    ///     .max_concurrency(20);         // 20 parallel uploads
+    ///
+    /// let response = client.upload()
+    ///     .upload_file_with_options(&token, "large_video.mp4", "/remote/video.mp4", options)
+    ///     .await?;
+    ///
+    /// println!("Uploaded: {}", response.path);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn upload_file_with_options<P: AsRef<std::path::Path>>(
+        &self,
+        access_token: &AccessToken,
+        local_path: P,
+        remote_path: &str,
+        options: SimpleUploadOptions,
+    ) -> NetDiskResult<CreateFileResponse> {
+        let file = std::fs::File::open(&local_path).map_err(|e| NetDiskError::Unknown {
+            message: format!(
+                "Failed to open file {}: {}",
+                local_path.as_ref().display(),
+                e
+            ),
+        })?;
+
+        let metadata = file.metadata().map_err(|e| NetDiskError::Unknown {
+            message: format!(
+                "Failed to get file metadata {}: {}",
+                local_path.as_ref().display(),
+                e
+            ),
+        })?;
+
+        let file_size = metadata.len();
+        debug!("File opened successfully: {} bytes", file_size);
+
+        let mut reader = std::io::BufReader::new(file);
+        self.upload_reader_with_options(access_token, &mut reader, file_size, remote_path, options)
+            .await
+    }
+
+    /// Upload from a Reader with seek support (streaming API)
+    ///
+    /// This is a lower-level API that accepts any `Read + Seek` reader.
+    /// Useful for:
+    /// - Custom file wrapping (e.g., encrypted files)
+    /// - Upload from memory-mapped files
+    /// - Testing with custom readers
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use baidu_netdisk_sdk::BaiduNetDiskClient;
+    /// use std::io::BufReader;
+    ///
+    /// let client = BaiduNetDiskClient::builder().build()?;
+    /// let token = client.load_token_from_env()?;
+    ///
+    /// let file = std::fs::File::open("test.txt")?;
+    /// let metadata = file.metadata()?;
+    /// let file_size = metadata.len();
+    ///
+    /// let reader = BufReader::new(file);
+    /// let mut reader = reader;  // mutable for rewind
+    ///
+    /// let response = client.upload()
+    ///     .upload_reader(&token, &mut reader, file_size, "/remote/test.txt")
+    ///     .await?;
+    ///
+    /// println!("Uploaded: {}", response.path);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Memory Usage
+    ///
+    /// Memory is bounded by batch size (`max_concurrency * 2 * chunk_size`),
+    /// approximately 80MB by default, regardless of file size.
+    pub async fn upload_reader<R: std::io::Read + std::io::Seek>(
+        &self,
+        access_token: &AccessToken,
+        reader: &mut R,
+        file_size: u64,
+        remote_path: &str,
+    ) -> NetDiskResult<CreateFileResponse> {
+        self.upload_reader_with_options(
+            access_token,
+            reader,
+            file_size,
+            remote_path,
+            SimpleUploadOptions::default(),
+        )
+        .await
+    }
+
+    /// Upload from a Reader with custom options
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use baidu_netdisk_sdk::{BaiduNetDiskClient, upload::SimpleUploadOptions};
+    ///
+    /// let client = BaiduNetDiskClient::builder().build()?;
+    /// let token = client.load_token_from_env()?;
+    ///
+    /// let options = SimpleUploadOptions::default()
+    ///     .chunk_size(8 * 1024 * 1024)
+    ///     .max_concurrency(20);
+    ///
+    /// let file = std::fs::File::open("test.txt")?;
+    /// let metadata = file.metadata()?;
+    /// let file_size = metadata.len();
+    ///
+    /// let mut reader = std::io::BufReader::new(file);
+    /// let response = client.upload()
+    ///     .upload_reader_with_options(&token, &mut reader, file_size, "/remote/test.txt", options)
+    ///     .await?;
+    ///
+    /// println!("Uploaded: {}", response.path);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn upload_reader_with_options<R: std::io::Read + std::io::Seek>(
+        &self,
+        access_token: &AccessToken,
+        reader: &mut R,
+        file_size: u64,
+        remote_path: &str,
+        options: SimpleUploadOptions,
+    ) -> NetDiskResult<CreateFileResponse> {
+        let chunk_size = options.chunk_size;
+        let max_concurrency = options.max_concurrency;
+        let r#type = options.r#type;
+
+        debug!(
+            "upload_reader: file_size={} bytes, chunk_size={}",
+            file_size, chunk_size
+        );
+
+        let mut block_list: Vec<String> = Vec::new();
+        let mut read_chunks = 0usize;
+
+        loop {
+            let mut buffer = vec![0u8; chunk_size];
+            let bytes_read = match reader.read(&mut buffer) {
+                Ok(n) => n,
+                Err(e) => {
+                    debug!("First pass read error: {}", e);
+                    break;
+                }
+            };
+
+            if bytes_read == 0 {
+                break;
+            }
+
+            buffer.truncate(bytes_read);
+            let chunk_md5 = format!("{:x}", md5::compute(&buffer));
+            block_list.push(chunk_md5);
+            read_chunks += 1;
+        }
+
+        debug!("First pass: read {} chunks", read_chunks);
+
+        reader.rewind().map_err(|e| NetDiskError::Unknown {
+            message: format!("Failed to rewind reader: {}", e),
+        })?;
+
+        let precreate_options =
+            PrecreateOptions::new(remote_path, file_size, block_list.clone()).rtype(r#type);
+
+        let precreate_response = self.precreate(access_token, precreate_options).await?;
+
+        let missing_blocks: Vec<u32> = precreate_response.block_list;
+        debug!(
+            "Server returned {} blocks need upload",
+            missing_blocks.len()
+        );
+
+        if !missing_blocks.is_empty() {
+            let missing_blocks_set: std::collections::HashSet<u32> =
+                missing_blocks.into_iter().collect();
+
+            let batch_size = max_concurrency * 2;
+            let mut pending_chunks: Vec<(u32, Vec<u8>)> = Vec::with_capacity(batch_size);
+            let mut all_chunk_md5s: Vec<(u32, String)> = Vec::new();
+            let mut partseq = 0u32;
+
+            loop {
+                let mut buffer = vec![0u8; chunk_size];
+                let bytes_read = match reader.read(&mut buffer) {
+                    Ok(n) => n,
+                    Err(e) => {
+                        debug!("Second pass read error: {}", e);
+                        break;
+                    }
+                };
+
+                if bytes_read == 0 {
+                    break;
+                }
+
+                buffer.truncate(bytes_read);
+                let chunk_md5 = format!("{:x}", md5::compute(&buffer));
+
+                if missing_blocks_set.contains(&partseq) {
+                    pending_chunks.push((partseq, buffer));
+                } else {
+                    all_chunk_md5s.push((partseq, chunk_md5.clone()));
+                }
+
+                if pending_chunks.len() >= batch_size
+                    || (partseq + 1 == read_chunks as u32 && !pending_chunks.is_empty())
+                {
+                    let batch_results = self
+                        .upload_chunks_parallel(
+                            access_token,
+                            remote_path,
+                            &precreate_response.uploadid,
+                            std::mem::take(&mut pending_chunks),
+                            max_concurrency,
+                        )
+                        .await?;
+
+                    for (seq, md5) in batch_results {
+                        all_chunk_md5s.push((seq, md5));
+                    }
+                }
+
+                partseq += 1;
+            }
+
+            all_chunk_md5s.sort_by_key(|(i, _)| *i);
+            let new_block_list: Vec<String> =
+                all_chunk_md5s.into_iter().map(|(_, md5)| md5).collect();
+
+            let create_options = CreateFileOptions::new(
+                remote_path,
+                file_size,
+                new_block_list,
+                &precreate_response.uploadid,
+            )
+            .rtype(r#type);
+
+            self.create_file(access_token, create_options).await
+        } else {
+            let create_options = CreateFileOptions::new(
+                remote_path,
+                file_size,
+                block_list,
+                &precreate_response.uploadid,
+            )
+            .rtype(r#type);
+
+            self.create_file(access_token, create_options).await
+        }
+    }
+
+    /// Upload bytes from memory (simple API)
+    ///
+    /// Use this method when you already have the data in memory.
+    /// For large data, consider using [`UploadClient::upload_file`] or [`UploadClient::upload_reader`] instead
+    /// to avoid loading the entire data into memory.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use baidu_netdisk_sdk::BaiduNetDiskClient;
+    ///
+    /// let client = BaiduNetDiskClient::builder().build()?;
+    /// let token = client.load_token_from_env()?;
+    ///
+    /// let data = b"Hello, World!";
+    /// let response = client.upload()
+    ///     .upload_bytes(&token, data, "/remote/hello.txt")
+    ///     .await?;
+    ///
+    /// println!("Uploaded: {}", response.path);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Memory Note
+    ///
+    /// The entire `data` slice will be held in memory during upload.
+    /// For large files, use [`UploadClient::upload_file`] which streams from disk.
+    pub async fn upload_bytes(
+        &self,
+        access_token: &AccessToken,
+        data: &[u8],
+        remote_path: &str,
+    ) -> NetDiskResult<CreateFileResponse> {
+        self.upload_bytes_with_options(
+            access_token,
+            data,
+            remote_path,
+            SimpleUploadOptions::default(),
+        )
+        .await
+    }
+
+    /// Upload bytes from memory with custom options
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use baidu_netdisk_sdk::{BaiduNetDiskClient, upload::SimpleUploadOptions};
+    ///
+    /// let client = BaiduNetDiskClient::builder().build()?;
+    /// let token = client.load_token_from_env()?;
+    ///
+    /// let options = SimpleUploadOptions::default()
+    ///     .chunk_size(8 * 1024 * 1024)
+    ///     .max_concurrency(20);
+    ///
+    /// let data = b"Hello, World!";
+    /// let response = client.upload()
+    ///     .upload_bytes_with_options(&token, data, "/remote/hello.txt", options)
+    ///     .await?;
+    ///
+    /// println!("Uploaded: {}", response.path);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn upload_bytes_with_options(
+        &self,
+        access_token: &AccessToken,
+        data: &[u8],
+        remote_path: &str,
+        options: SimpleUploadOptions,
+    ) -> NetDiskResult<CreateFileResponse> {
+        let file_size = data.len() as u64;
+        let chunk_size = options.chunk_size;
+        let max_concurrency = options.max_concurrency;
+        let r#type = options.r#type;
+
+        let block_list: Vec<String> = data
+            .chunks(chunk_size)
+            .map(|chunk| format!("{:x}", md5::compute(chunk)))
+            .collect();
+
+        let precreate_options =
+            PrecreateOptions::new(remote_path, file_size, block_list.clone()).rtype(r#type);
+
+        let precreate_response = self.precreate(access_token, precreate_options).await?;
+
+        let missing_blocks_set: std::collections::HashSet<u32> =
+            precreate_response.block_list.into_iter().collect();
+
+        let chunks_to_upload: Vec<(u32, Vec<u8>)> = data
+            .chunks(chunk_size)
+            .enumerate()
+            .filter(|(i, _)| missing_blocks_set.contains(&(*i as u32)))
+            .map(|(i, chunk)| (i as u32, chunk.to_vec()))
+            .collect();
+
+        if !chunks_to_upload.is_empty() {
+            let chunk_results = self
+                .upload_chunks_parallel(
+                    access_token,
+                    remote_path,
+                    &precreate_response.uploadid,
+                    chunks_to_upload,
+                    max_concurrency,
+                )
+                .await?;
+
+            let mut sorted_results = chunk_results;
+            sorted_results.sort_by_key(|(i, _)| *i);
+            let new_block_list: Vec<String> =
+                sorted_results.into_iter().map(|(_, md5)| md5).collect();
+
+            let create_options = CreateFileOptions::new(
+                remote_path,
+                file_size,
+                new_block_list,
+                &precreate_response.uploadid,
+            )
+            .rtype(r#type);
+
+            self.create_file(access_token, create_options).await
+        } else {
+            let create_options = CreateFileOptions::new(
+                remote_path,
+                file_size,
+                block_list,
+                &precreate_response.uploadid,
+            )
+            .rtype(r#type);
+
+            self.create_file(access_token, create_options).await
+        }
     }
 }

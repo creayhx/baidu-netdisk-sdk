@@ -1,6 +1,5 @@
 use baidu_netdisk_sdk::{
-    BaiduNetDiskClient, BtListOptions, DocumentListOptions, ImageListOptions,
-    VideoListOptions,
+    BaiduNetDiskClient, BtListOptions, DocumentListOptions, ImageListOptions, VideoListOptions,
 };
 use log::info;
 use tokio::time::{sleep, Duration};

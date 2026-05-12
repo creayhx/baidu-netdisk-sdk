@@ -242,10 +242,9 @@ impl TokenProvider {
     pub async fn refresh_token(&self) -> NetDiskResult<AccessToken> {
         // First, get refresh_token and release the lock
         let refresh_token = {
-            let current_token = self
-                .access_token
-                .read()
-                .map_err(|e| NetDiskError::SyncError(format!("Failed to read access token: {}", e)))?;
+            let current_token = self.access_token.read().map_err(|e| {
+                NetDiskError::SyncError(format!("Failed to read access token: {}", e))
+            })?;
             current_token
                 .as_ref()
                 .ok_or_else(|| NetDiskError::auth_error("No access token to refresh"))?

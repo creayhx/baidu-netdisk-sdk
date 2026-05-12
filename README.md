@@ -19,7 +19,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-baidu-netdisk-sdk = "0.1"
+baidu-netdisk-sdk = "0.1.1"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
@@ -174,8 +174,97 @@ Download methods:
 
 ### Upload (`client.upload()`)
 
-Upload methods:
-- `upload_file()` - Full upload flow (auto chunking)
+The SDK provides multiple upload methods to handle different scenarios:
+
+#### Upload Methods Comparison
+
+| Method | Data Source | Memory Usage | Streaming | Best For |
+|--------|-------------|--------------|-----------|----------|
+| [`upload_file()`](#1-upload-file-from-path) | File path | ~80MB | ✅ | Most common scenarios |
+| [`upload_reader()`](#2-upload-from-reader) | Reader + size | ~80MB | ✅ | Custom readers, wrapped streams |
+| [`upload_bytes()`](#3-upload-bytes-from-memory) | `&[u8]` slice | Full data | ❌ | Small data in memory |
+
+#### Key Features
+
+- **Resumable Upload**: Automatically detects partially uploaded chunks and skips them
+- **Parallel Upload**: Uploads multiple chunks concurrently (default: 10 parallel)
+- **Memory Optimized**: For large files, memory is bounded by batch size (~80MB default)
+- **Automatic Chunking**: Files are automatically split into 4MB chunks
+
+#### 1. Upload File from Path
+
+The simplest way to upload a file:
+
+```rust
+use baidu_netdisk_sdk::BaiduNetDiskClient;
+
+let client = BaiduNetDiskClient::builder().build()?;
+let token = client.load_token_from_env()?;
+
+// Simple upload
+let response = client.upload()
+    .upload_file(&token, "local_file.txt", "/remote/file.txt")
+    .await?;
+
+println!("Uploaded: {} ({} bytes)", response.path, response.size);
+```
+
+With custom options:
+
+```rust
+use baidu_netdisk_sdk::{BaiduNetDiskClient, upload::SimpleUploadOptions};
+
+let options = SimpleUploadOptions::default()
+    .chunk_size(8 * 1024 * 1024)  // 8MB chunks
+    .max_concurrency(20);         // 20 parallel uploads
+
+let response = client.upload()
+    .upload_file_with_options(&token, "video.mp4", "/remote/video.mp4", options)
+    .await?;
+```
+
+#### 2. Upload from Reader
+
+For streaming upload with custom readers (requires `Read + Seek`):
+
+```rust
+use baidu_netdisk_sdk::BaiduNetDiskClient;
+use std::io::BufReader;
+
+let file = std::fs::File::open("local_file.txt")?;
+let metadata = file.metadata()?;
+let file_size = metadata.len();
+
+let mut reader = BufReader::new(file);
+
+let response = client.upload()
+    .upload_reader(&token, &mut reader, file_size, "/remote/file.txt")
+    .await?;
+```
+
+#### 3. Upload Bytes from Memory
+
+For data already in memory:
+
+```rust
+use baidu_netdisk_sdk::BaiduNetDiskClient;
+
+let data = b"Hello, World!";
+let response = client.upload()
+    .upload_bytes(&token, data, "/remote/hello.txt")
+    .await?;
+
+println!("Uploaded: {} bytes", response.size);
+```
+
+#### How Resumable Upload Works
+
+1. **First pass**: Read file → calculate MD5 for each chunk
+2. **Precreate**: Call API → get uploadid and list of existing chunks
+3. **Second pass**: Read file again → only upload missing chunks
+4. **Create**: Merge chunks into final file
+
+This means if an upload is interrupted, restarting will only upload the missing chunks.
 
 ### Authorization (`client.authorize()`)
 
@@ -273,6 +362,9 @@ cargo run --example search
 
 # Upload
 cargo run --example upload_file
+cargo run --example upload_bytes
+cargo run --example upload_reader
+cargo run --example upload_file_options
 
 # Download
 cargo run --example download

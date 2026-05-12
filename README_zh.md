@@ -19,7 +19,7 @@
 
 ```toml
 [dependencies]
-baidu-netdisk-sdk = "0.1"
+baidu-netdisk-sdk = "0.1.1"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
@@ -68,7 +68,7 @@ let results = client.file()
 
 // 上传文件
 client.upload()
-    .upload_file(&token, "/remote/path.txt", "local/path.txt", 10)
+    .upload_file(&token, "local/path.txt", "/remote/path.txt")
     .await?;
 
 // 下载文件
@@ -174,8 +174,97 @@ let client = BaiduNetDiskClient::builder()
 
 ### 上传 (`client.upload()`)
 
-上传方法：
-- `upload_file()` - 完整上传流程（自动分片）
+SDK 提供多种上传方法以适应不同场景：
+
+#### 上传方法对比
+
+| 方法 | 数据来源 | 内存占用 | 流式 | 适用场景 |
+|------|----------|----------|------|----------|
+| [`upload_file()`](#1-从文件路径上传) | 文件路径 | ~80MB | ✅ | 最常见的场景 |
+| [`upload_reader()`](#2-从-reader-上传) | Reader + 文件大小 | ~80MB | ✅ | 自定义读取器、包装流 |
+| [`upload_bytes()`](#3-从内存字节上传) | `&[u8]` 切片 | 全量数据 | ❌ | 内存中的小数据 |
+
+#### 核心特性
+
+- **断点续传**：自动检测已上传的分片，只上传缺失的部分
+- **并行上传**：支持多个分片同时上传（默认：10 并发）
+- **内存优化**：大文件内存占用受批量大小限制（默认约 80MB）
+- **自动分片**：文件自动切割为 4MB 分片
+
+#### 1. 从文件路径上传
+
+最简单的文件上传方式：
+
+```rust
+use baidu_netdisk_sdk::BaiduNetDiskClient;
+
+let client = BaiduNetDiskClient::builder().build()?;
+let token = client.load_token_from_env()?;
+
+// 简单上传
+let response = client.upload()
+    .upload_file(&token, "local_file.txt", "/remote/file.txt")
+    .await?;
+
+println!("已上传: {} ({} 字节)", response.path, response.size);
+```
+
+自定义选项上传：
+
+```rust
+use baidu_netdisk_sdk::{BaiduNetDiskClient, upload::SimpleUploadOptions};
+
+let options = SimpleUploadOptions::default()
+    .chunk_size(8 * 1024 * 1024)  // 8MB 分片
+    .max_concurrency(20);         // 20 并发上传
+
+let response = client.upload()
+    .upload_file_with_options(&token, "video.mp4", "/remote/video.mp4", options)
+    .await?;
+```
+
+#### 2. 从 Reader 上传
+
+支持流式上传，适用需要自定义读取器的场景（需要 `Read + Seek`）：
+
+```rust
+use baidu_netdisk_sdk::BaiduNetDiskClient;
+use std::io::BufReader;
+
+let file = std::fs::File::open("local_file.txt")?;
+let metadata = file.metadata()?;
+let file_size = metadata.len();
+
+let mut reader = BufReader::new(file);
+
+let response = client.upload()
+    .upload_reader(&token, &mut reader, file_size, "/remote/file.txt")
+    .await?;
+```
+
+#### 3. 从内存字节上传
+
+适用数据已经在内存中的场景：
+
+```rust
+use baidu_netdisk_sdk::BaiduNetDiskClient;
+
+let data = b"Hello, World!";
+let response = client.upload()
+    .upload_bytes(&token, data, "/remote/hello.txt")
+    .await?;
+
+println!("已上传: {} 字节", response.size);
+```
+
+#### 断点续传原理
+
+1. **第一次遍历**：读取文件 → 计算每个分片的 MD5
+2. **预创建**：调用 API → 获取 uploadid 和已存在分片列表
+3. **第二次遍历**：再次读取文件 → 只上传缺失的分片
+4. **创建**：合并分片生成最终文件
+
+这意味着如果上传中断，重启后只会上传缺失的分片。
 
 ### 授权 (`client.authorize()`)
 
@@ -273,6 +362,9 @@ cargo run --example search
 
 # 上传
 cargo run --example upload_file
+cargo run --example upload_bytes
+cargo run --example upload_reader
+cargo run --example upload_file_options
 
 # 下载
 cargo run --example download
