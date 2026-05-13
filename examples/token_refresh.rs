@@ -22,21 +22,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 1: Load token from environment
     println!("Step 1: Loading token from environment...");
-    let original_token = match client.load_token_from_env() {
-        Ok(t) => {
-            println!("✓ Token loaded successfully");
-            println!("  Access Token: {}", t.access_token);
-            println!("  Refresh Token: {}", t.refresh_token);
-            println!("  Expires in: {} seconds", t.expires_in);
-            t
-        }
-        Err(e) => {
-            println!("✗ Failed to load token from env: {}", e);
-            println!("Please set ACCESS_TOKEN, REFRESH_TOKEN, EXPIRES_IN in .env file");
-            return Ok(());
-        }
-    };
+    client.load_token_from_env()?;
+    println!("Token loaded successfully");
 
+    let original_token = client.get_valid_token().await?;
+    println!("Original Token: {:?}", original_token);
     println!();
 
     // Step 2: Test manual refresh
