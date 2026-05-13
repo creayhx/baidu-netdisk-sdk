@@ -13,11 +13,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
     info!("Client created successfully");
 
-    let token = client.load_token_from_env()?;
+    client.load_token_from_env()?;
     info!("Token loaded successfully");
 
     println!("Getting user info...");
-    let user_info = client.user().get_user_info(&token, Some("v2")).await?;
+    let user_info = client.user().get_user_info(Some("v2")).await?;
 
     println!("\n=== User Information ===");
     println!("Baidu Name:    {}", user_info.baidu_name);
