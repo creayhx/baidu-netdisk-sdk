@@ -15,22 +15,16 @@
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = BaiduNetDiskClient::builder().build()?;
-//! let token = client.load_token_from_env()?;
+//! client.load_token_from_env()?;
 //!
-//! // Auto download (recommended)
-//! client.download()
-//!     .auto_download(&token, "/myfile.txt", "./downloaded.txt")
-//!     .await?;
+//! // Auto download (recommended) - using shortcut API
+//! client.auto_download("/myfile.txt", "./downloaded.txt").await?;
 //!
-//! // Or use single-threaded for small files
-//! client.download()
-//!     .download_single(&token, "/small.txt", "./small.txt")
-//!     .await?;
+//! // Or use single-threaded for small files - using shortcut API
+//! client.download_single("/small.txt", "./small.txt").await?;
 //!
-//! // Or use streaming for large files
-//! client.download()
-//!     .download_concurrent_futures(&token, "/large.zip", "./large.zip", 4)
-//!     .await?;
+//! // Or use streaming for large files - using shortcut API
+//! client.download_streaming("/large.zip", "./large.zip", 4).await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -51,14 +45,14 @@ use crate::file::FileMeta;
 /// Download client for Baidu NetDisk
 #[derive(Debug, Clone)]
 pub struct DownloadClient {
-    file_client: FileClient,
+    file_client: Arc<FileClient>,
 }
 
 impl DownloadClient {
     /// Create a new DownloadClient instance
     ///
     /// Usually you don't need to call this directly - use `BaiduNetDiskClient::download()` instead.
-    pub fn new(file_client: FileClient) -> Self {
+    pub fn new(file_client: Arc<FileClient>) -> Self {
         Self { file_client }
     }
 
@@ -290,7 +284,6 @@ impl DownloadClient {
 
     /// Concurrent futures download using buffer_unordered (using file path)
     ///
-    /// Also available as `download_streaming`.
     /// Uses file path to locate the file.
     ///
     /// # Examples
@@ -303,12 +296,12 @@ impl DownloadClient {
     /// let token = client.load_token_from_env()?;
     ///
     /// client.download()
-    ///     .download_concurrent_futures(&token, "/large.zip", "./large.zip", 4)
+    ///     .download_streaming(&token, "/large.zip", "./large.zip", 4)
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn download_concurrent_futures(
+    pub async fn download_streaming(
         &self,
         access_token: &AccessToken,
         path: &str,
@@ -322,7 +315,6 @@ impl DownloadClient {
 
     /// Concurrent futures download using buffer_unordered (using file fs_id)
     ///
-    /// Also available as `download_streaming_by_fsid`.
     /// Uses file fs_id to locate the file.
     pub async fn download_streaming_by_fsid(
         &self,

@@ -12,6 +12,7 @@ A Rust SDK for Baidu NetDisk Open Platform API, providing file management, uploa
 - **Thread Safety**: Uses `RwLock` for concurrent safety
 - **Flexible Configuration**: Builder pattern for easy client configuration
 - **Async First**: Built on `tokio` async runtime
+- **Convenient Shortcut APIs**: Client automatically encapsulates submodule methods and manages tokens internally
 
 ## Installation
 
@@ -19,11 +20,13 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-baidu-netdisk-sdk = "0.1.2"
+baidu-netdisk-sdk = "0.1.3"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
 ## Quick Start
+
+> **Note**: The `BaiduNetDiskClient` encapsulates all submodule methods and automatically manages tokens internally. Most operations can be called directly on the client without needing to access submodules or pass tokens explicitly.
 
 ### 1. Create Client
 
@@ -58,24 +61,40 @@ let token = loop {
 ### 3. File Operations
 
 ```rust
-// List directory
-let files = client.file().list_directory(&token, "/").await?;
+// List directory - using shortcut API (no explicit token required)
+let files = client.list_directory("/").await?;
 
-// Search files
-let (results, has_more) = client.file()
-    .search_files(&token, "documents", "/")
-    .await?;
+// Search files - using shortcut API
+let (results, has_more) = client.search_files("documents", "/").await?;
 
-// Upload file
-client.upload()
-    .upload_file(&token, "local/path.txt", "/remote/path.txt")
-    .await?;
+// Upload file - using shortcut API
+client.upload_file("local/path.txt", "/remote/path.txt").await?;
 
-// Download file
-client.download()
-    .download_single(&token, "/remote/file.txt", "./local/file.txt")
-    .await?;
+// Download file - using shortcut API
+client.download_single("/remote/file.txt", "./local/file.txt").await?;
 ```
+
+### 4. TokenScopedClient for Multi-User Scenarios
+
+For multi-user scenarios where you need to use multiple tokens concurrently, you can create a `TokenScopedClient`:
+
+```rust
+// Create a scoped client bound to a specific token
+let scoped_client = client.with_token(token);
+
+// Use the scoped client - token is automatically used
+let files = scoped_client.list_directory("/").await?;
+let quota = scoped_client.get_quota().await?;
+
+// Each scoped client has its own isolated token context
+// Multiple scoped clients can be used concurrently without conflicts
+```
+
+**Key Benefits of TokenScopedClient:**
+- **Thread-safe**: Each scoped client has its own token context
+- **Isolation**: Changes to one scoped client don't affect others
+- **Convenience**: No need to pass token explicitly for each call
+- **Cacheable**: You can cache scoped clients per user for better performance
 
 ## Configuration
 
@@ -98,7 +117,7 @@ These variables are automatically read when `ClientBuilder::default()` is called
 
 These variables are NOT automatically read during builder initialization. You must call `load_token_from_env()` explicitly to load them.
 
-| Variable | Required for `load_token_from_env()` | Description |
+| Variable | Required | Description |
 |----------|--------------------------------------|-------------|
 | `BD_NETDISK_ACCESS_TOKEN` | Yes | Access Token |
 | `BD_NETDISK_REFRESH_TOKEN` | Yes | Refresh Token |
@@ -168,7 +187,7 @@ Download methods:
 - `download_parallel()` - Multi-thread parallel download (by path)
 - `download_parallel_by_fsid()` - Multi-thread parallel download (by fs_id)
 - `download_parallel_multi_threaded()` - Multi-thread parallel download (with FileMeta)
-- `download_concurrent_futures()` - Async concurrency download (by path)
+- `download_streaming()` - Async concurrency download (by path)
 - `download_streaming_by_fsid()` - Async concurrency download (by fs_id)
 - `download_streaming_with_meta()` - Streaming download (with FileMeta)
 
@@ -199,12 +218,10 @@ The simplest way to upload a file:
 use baidu_netdisk_sdk::BaiduNetDiskClient;
 
 let client = BaiduNetDiskClient::builder().build()?;
-let token = client.load_token_from_env()?;
+client.load_token_from_env()?;
 
-// Simple upload
-let response = client.upload()
-    .upload_file(&token, "local_file.txt", "/remote/file.txt")
-    .await?;
+// Simple upload - using shortcut API (no explicit token required)
+let response = client.upload_file("local_file.txt", "/remote/file.txt").await?;
 
 println!("Uploaded: {} ({} bytes)", response.path, response.size);
 ```
@@ -218,9 +235,7 @@ let options = SimpleUploadOptions::default()
     .chunk_size(8 * 1024 * 1024)  // 8MB chunks
     .max_concurrency(20);         // 20 parallel uploads
 
-let response = client.upload()
-    .upload_file_with_options(&token, "video.mp4", "/remote/video.mp4", options)
-    .await?;
+let response = client.upload_file_with_options("video.mp4", "/remote/video.mp4", options).await?;
 ```
 
 #### 2. Upload from Reader
@@ -250,9 +265,8 @@ For data already in memory:
 use baidu_netdisk_sdk::BaiduNetDiskClient;
 
 let data = b"Hello, World!";
-let response = client.upload()
-    .upload_bytes(&token, data, "/remote/hello.txt")
-    .await?;
+// Using shortcut API (no explicit token required)
+let response = client.upload_bytes(data, "/remote/hello.txt").await?;
 
 println!("Uploaded: {} bytes", response.size);
 ```
@@ -391,13 +405,13 @@ This SDK provides multiple download strategies for different scenarios:
 
 ### Concurrency vs Parallelism
 
-**Concurrency** (`download_concurrent_futures_with_meta`):
+**Concurrency** (`download_streaming`):
 - Uses async tasks on a single thread (or thread pool)
 - Efficient for many small files or when network is the bottleneck
 - Lower memory overhead
 - Ideal for: Downloading multiple small files, limited memory environments
 
-**Parallelism** (`download_parallel_multi_threaded`):
+**Parallelism** (`download_parallel`):
 - Uses true multi-threading with dedicated OS threads
 - Higher throughput for large files (maximizes network bandwidth)
 - Higher memory usage (each thread has its own stack)
@@ -407,11 +421,11 @@ This SDK provides multiple download strategies for different scenarios:
 
 | Scenario | Recommendation |
 |----------|----------------|
-| Small files (<10MB) | `auto_download()` or concurrent |
+| Small files (<10MB) | `auto_download()` or concurrent streaming |
 | Medium files (10-100MB) | `auto_download()` will choose best |
 | Large files (>100MB) | Parallel multi-threaded |
-| Multiple files | Concurrent futures |
-| Memory constrained | Single-thread or concurrent |
+| Multiple files | Concurrent streaming |
+| Memory constrained | Single-thread or concurrent streaming |
 | Maximum speed | Parallel multi-threaded |
 
 ### Quick Reference
@@ -419,21 +433,16 @@ This SDK provides multiple download strategies for different scenarios:
 ```rust
 // Auto-select based on file size (recommended for most cases)
 // - < 10MB: single-threaded
-// - > 10MB: futures concurrent download (good performance regardless of CPU cores)
-// Note: For maximum speed, use `download_parallel` or `download_parallel_multi_threaded` manually
-client.download()
-    .auto_download(&token, "/remote/file.zip", "./local/file.zip")
-    .await?;
+// - > 10MB: futures concurrent streaming (good performance regardless of CPU cores)
+// Note: For maximum speed, use `download_parallel` manually
+// Using shortcut API (no explicit token required)
+client.auto_download("/remote/file.zip", "./local/file.zip").await?;
 
 // For maximum speed with large files (6+ cores recommended)
-client.download()
-    .download_parallel(&token, "/remote/large.iso", "./local/large.iso", Some(8))
-    .await?;
+client.download_parallel("/remote/large.iso", "./local/large.iso", Some(8)).await?;
 
 // For many small files or limited cores (<= 4)
-client.download()
-    .download_concurrent_futures(&token, "/remote/small.txt", "./local/small.txt", 4)
-    .await?;
+client.download_streaming("/remote/small.txt", "./local/small.txt", 4).await?;
 ```
 
 ### Not Sure Which to Use? Run the Comparison Test!
