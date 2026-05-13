@@ -2,11 +2,10 @@
 //!
 //! Provides file and folder query functionality (list, get info, get metadata)
 use log::{debug, info};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::future::Future;
 
 use super::FileClient;
-use crate::auth::AccessToken;
 use crate::errors::{NetDiskError, NetDiskResult};
 
 /// Extension trait for file query operations
@@ -20,16 +19,15 @@ pub(crate) trait FileQueryExt {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
-    /// let files = client.file().list_directory(&token, "/").await?;
+    /// let files = client.file().list_directory("/").await?;
     /// println!("Found {} items", files.len());
     /// # Ok(())
     /// # }
     /// ```
     fn list_directory(
         &self,
-        access_token: &AccessToken,
         dir: &str,
     ) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
 
@@ -39,7 +37,6 @@ pub(crate) trait FileQueryExt {
     /// Most users should use `list_directory()` instead.
     fn list_directory_with_options(
         &self,
-        access_token: &AccessToken,
         dir: &str,
         options: ListOptions,
     ) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
@@ -53,16 +50,15 @@ pub(crate) trait FileQueryExt {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
-    /// let (files, has_more) = client.file().list_all(&token, "/").await?;
+    /// let (files, has_more) = client.file().list_all("/").await?;
     /// println!("Found {} items", files.len());
     /// # Ok(())
     /// # }
     /// ```
     fn list_all(
         &self,
-        access_token: &AccessToken,
         path: &str,
     ) -> impl Future<Output = NetDiskResult<(Vec<FileInfo>, bool)>> + Send;
 
@@ -72,7 +68,6 @@ pub(crate) trait FileQueryExt {
     /// Most users should use `list_all()` instead.
     fn list_all_with_options(
         &self,
-        access_token: &AccessToken,
         path: &str,
         options: ListAllOptions,
     ) -> impl Future<Output = NetDiskResult<(Vec<FileInfo>, bool)>> + Send;
@@ -86,18 +81,14 @@ pub(crate) trait FileQueryExt {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
-    /// let file_info = client.file().get_file_info(&token, "/myfile.txt").await?;
+    /// let file_info = client.file().get_file_info("/myfile.txt").await?;
     /// println!("File size: {:?} bytes", file_info.size);
     /// # Ok(())
     /// # }
     /// ```
-    fn get_file_info(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-    ) -> impl Future<Output = NetDiskResult<FileInfo>> + Send;
+    fn get_file_info(&self, path: &str) -> impl Future<Output = NetDiskResult<FileInfo>> + Send;
 
     /// Get file metadata (including download link) by fs_id
     ///
@@ -110,21 +101,17 @@ pub(crate) trait FileQueryExt {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// let fs_id = 123456;
-    /// let meta = client.file().get_file_meta(&token, fs_id).await?;
+    /// let meta = client.file().get_file_meta(fs_id).await?;
     /// if let Some(dlink) = meta.dlink {
     ///     println!("Download link: {}", dlink);
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    fn get_file_meta(
-        &self,
-        access_token: &AccessToken,
-        fs_id: u64,
-    ) -> impl Future<Output = NetDiskResult<FileMeta>> + Send;
+    fn get_file_meta(&self, fs_id: u64) -> impl Future<Output = NetDiskResult<FileMeta>> + Send;
 
     /// Search files by keyword
     ///
@@ -135,16 +122,15 @@ pub(crate) trait FileQueryExt {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
-    /// let (files, has_more) = client.file().search_files(&token, "document", "/").await?;
+    /// let (files, has_more) = client.file().search_files("document", "/").await?;
     /// println!("Found {} items", files.len());
     /// # Ok(())
     /// # }
     /// ```
     fn search_files(
         &self,
-        access_token: &AccessToken,
         key: &str,
         dir: &str,
     ) -> impl Future<Output = NetDiskResult<(Vec<FileInfo>, bool)>> + Send;
@@ -155,7 +141,6 @@ pub(crate) trait FileQueryExt {
     /// Most users should use `search_files()` instead.
     fn search_files_with_options(
         &self,
-        access_token: &AccessToken,
         key: &str,
         options: SearchOptions,
     ) -> impl Future<Output = NetDiskResult<(Vec<FileInfo>, bool)>> + Send;
@@ -169,16 +154,15 @@ pub(crate) trait FileQueryExt {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
-    /// let files = client.file().semantic_search(&token, "photos from 2024").await?;
+    /// let files = client.file().semantic_search("photos from 2024").await?;
     /// println!("Found {} items", files.len());
     /// # Ok(())
     /// # }
     /// ```
     fn semantic_search(
         &self,
-        access_token: &AccessToken,
         query: &str,
     ) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
 
@@ -188,28 +172,23 @@ pub(crate) trait FileQueryExt {
     /// Most users should use `semantic_search()` instead.
     fn semantic_search_with_options(
         &self,
-        access_token: &AccessToken,
         query: &str,
         options: SemanticSearchOptions,
     ) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
 }
 
 impl FileQueryExt for FileClient {
-    async fn list_directory(
-        &self,
-        access_token: &AccessToken,
-        dir: &str,
-    ) -> NetDiskResult<Vec<FileInfo>> {
-        self.list_directory_with_options(access_token, dir, ListOptions::default())
+    async fn list_directory(&self, dir: &str) -> NetDiskResult<Vec<FileInfo>> {
+        self.list_directory_with_options(dir, ListOptions::default())
             .await
     }
 
     async fn list_directory_with_options(
         &self,
-        access_token: &AccessToken,
         dir: &str,
         options: ListOptions,
     ) -> NetDiskResult<Vec<FileInfo>> {
+        let token = self.token_getter.get_token().await?;
         let params = [
             ("method", "list"),
             ("dir", dir),
@@ -220,7 +199,7 @@ impl FileQueryExt for FileClient {
             ("web", &options.web.to_string()),
             ("folder", &options.folder.to_string()),
             ("showempty", &options.showempty.to_string()),
-            ("access_token", &access_token.access_token),
+            ("access_token", &token.access_token),
         ];
 
         debug!("Listing directory: {} with options: {:?}", dir, options);
@@ -260,21 +239,17 @@ impl FileQueryExt for FileClient {
             .collect())
     }
 
-    async fn list_all(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-    ) -> NetDiskResult<(Vec<FileInfo>, bool)> {
-        self.list_all_with_options(access_token, path, ListAllOptions::new())
+    async fn list_all(&self, path: &str) -> NetDiskResult<(Vec<FileInfo>, bool)> {
+        self.list_all_with_options(path, ListAllOptions::new())
             .await
     }
 
     async fn list_all_with_options(
         &self,
-        access_token: &AccessToken,
         path: &str,
         options: ListAllOptions,
     ) -> NetDiskResult<(Vec<FileInfo>, bool)> {
+        let token = self.token_getter.get_token().await?;
         let recursion_str = options.recursion.to_string();
         let desc_str = options.desc.to_string();
         let start_str = options.start.to_string();
@@ -285,7 +260,7 @@ impl FileQueryExt for FileClient {
 
         let mut params: Vec<(&str, &str)> = vec![
             ("method", "listall"),
-            ("access_token", &access_token.access_token),
+            ("access_token", &token.access_token),
             ("path", path),
             ("recursion", &recursion_str),
             ("order", &options.order),
@@ -351,11 +326,7 @@ impl FileQueryExt for FileClient {
         Ok((file_info_list, has_more))
     }
 
-    async fn get_file_info(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-    ) -> NetDiskResult<FileInfo> {
+    async fn get_file_info(&self, path: &str) -> NetDiskResult<FileInfo> {
         debug!("Getting file info for: {}", path);
 
         // Normalize path
@@ -385,7 +356,7 @@ impl FileQueryExt for FileClient {
 
         // Use list_directory_with_options to get the parent directory listing
         let files = self
-            .list_directory_with_options(access_token, &parent_path, ListOptions::default())
+            .list_directory_with_options(&parent_path, ListOptions::default())
             .await?;
 
         for item in files {
@@ -404,18 +375,15 @@ impl FileQueryExt for FileClient {
     /// <https://pan.baidu.com/union/doc/Fksg0sbcm>
     ///
     /// Note: The API endpoint is /rest/2.0/xpan/multimedia (not /rest/2.0/xpan/file)
-    async fn get_file_meta(
-        &self,
-        access_token: &AccessToken,
-        fs_id: u64,
-    ) -> NetDiskResult<FileMeta> {
+    async fn get_file_meta(&self, fs_id: u64) -> NetDiskResult<FileMeta> {
+        let token = self.token_getter.get_token().await?;
         let fsids = serde_json::to_string(&[fs_id]).map_err(|e| NetDiskError::Unknown {
             message: format!("Failed to serialize fsids: {}", e),
         })?;
 
         let params = [
             ("method", "filemetas"),
-            ("access_token", &access_token.access_token),
+            ("access_token", &token.access_token),
             ("fsids", &fsids),
             ("dlink", "1"),
         ];
@@ -453,26 +421,21 @@ impl FileQueryExt for FileClient {
         })
     }
 
-    async fn search_files(
-        &self,
-        access_token: &AccessToken,
-        key: &str,
-        dir: &str,
-    ) -> NetDiskResult<(Vec<FileInfo>, bool)> {
-        self.search_files_with_options(access_token, key, SearchOptions::new(dir))
+    async fn search_files(&self, key: &str, dir: &str) -> NetDiskResult<(Vec<FileInfo>, bool)> {
+        self.search_files_with_options(key, SearchOptions::new(dir))
             .await
     }
 
     async fn search_files_with_options(
         &self,
-        access_token: &AccessToken,
         key: &str,
         options: SearchOptions,
     ) -> NetDiskResult<(Vec<FileInfo>, bool)> {
+        let token = self.token_getter.get_token().await?;
         let category_str = options.category.map(|c| c.to_string());
         let mut params = vec![
             ("method", "search"),
-            ("access_token", &access_token.access_token),
+            ("access_token", &token.access_token),
             ("key", key),
             ("dir", &options.dir),
             ("num", "500"),
@@ -530,27 +493,23 @@ impl FileQueryExt for FileClient {
         Ok((file_info_list, has_more))
     }
 
-    async fn semantic_search(
-        &self,
-        access_token: &AccessToken,
-        query: &str,
-    ) -> NetDiskResult<Vec<FileInfo>> {
-        self.semantic_search_with_options(access_token, query, SemanticSearchOptions::default())
+    async fn semantic_search(&self, query: &str) -> NetDiskResult<Vec<FileInfo>> {
+        self.semantic_search_with_options(query, SemanticSearchOptions::default())
             .await
     }
 
     async fn semantic_search_with_options(
         &self,
-        access_token: &AccessToken,
         query: &str,
         options: SemanticSearchOptions,
     ) -> NetDiskResult<Vec<FileInfo>> {
+        let token = self.token_getter.get_token().await?;
         let num_str = options.num.to_string();
         let stream_str = options.stream.to_string();
         let search_type_str = options.search_type.to_string();
 
         let url = format!("https://pan.baidu.com/xpan/unisearch?access_token={}&scene=mcpserver&query={}&num={}&stream={}&search_type={}",
-            urlencoding::encode(&access_token.access_token),
+            urlencoding::encode(&token.access_token),
             urlencoding::encode(query),
             num_str,
             stream_str,
@@ -601,7 +560,7 @@ impl FileQueryExt for FileClient {
 }
 
 /// Options for listing directory contents
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ListOptions {
     /// Sort order field (default: "name")
     pub order: String,
@@ -683,7 +642,7 @@ impl ListOptions {
 }
 
 /// Options for listing all files recursively
-#[derive(Debug, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ListAllOptions {
     /// Recursive listing (default: false)
     pub recursion: i32,
@@ -783,7 +742,7 @@ impl ListAllOptions {
 }
 
 /// File or folder information
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct FileInfo {
     /// File server ID
     pub fs_id: Option<u64>,
@@ -818,7 +777,7 @@ pub struct FileInfo {
 }
 
 /// File metadata containing download link
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct FileMeta {
     /// File server ID
     pub fs_id: Option<u64>,
@@ -922,7 +881,7 @@ struct FileMetaItem {
 }
 
 /// Options for keyword search
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct SearchOptions {
     /// Directory to search in
     pub dir: String,
@@ -974,7 +933,7 @@ impl SearchOptions {
 }
 
 /// Options for semantic search
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct SemanticSearchOptions {
     /// Directories to search in
     pub dirs: Vec<String>,
