@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = BaiduNetDiskClient::builder().build()?;
     info!("Client created successfully");
 
-    let token = client.load_token_from_env()?;
+    client.load_token_from_env()?;
     info!("Token loaded successfully");
 
     let test_dir = "/apps/product";
@@ -24,25 +24,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("=== Part 1: Global Category Counts (All files) ===");
     println!("----------------------------------------");
-    test_global_counts(&client, &token).await?;
+    test_global_counts(&client).await?;
 
     println!("\n\n=== Part 2: Category Counts in {} ===", test_dir);
     println!("----------------------------------------");
-    test_directory_counts(&client, &token, test_dir).await?;
+    test_directory_counts(&client, &test_dir).await?;
 
     println!("\n\n=== Part 3: List Files in Each Category ===");
     println!("----------------------------------------");
-    test_list_category_files(&client, &token, test_dir).await?;
+    test_list_category_files(&client, &test_dir).await?;
 
     println!("\n\n=== Category Test Completed ===");
 
     Ok(())
 }
 
-async fn test_global_counts(
-    client: &BaiduNetDiskClient,
-    token: &baidu_netdisk_sdk::AccessToken,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_global_counts(client: &BaiduNetDiskClient) -> Result<(), Box<dyn std::error::Error>> {
     let categories = [
         (Category::Video, "Video"),
         (Category::Music, "Music"),
@@ -61,7 +58,7 @@ async fn test_global_counts(
 
         match client
             .file()
-            .search_category_files_with_options(token, &category.as_u32().to_string(), options)
+            .search_category_files_with_options(&category.as_u32().to_string(), options)
             .await
         {
             Ok((_, total)) => {
@@ -80,7 +77,6 @@ async fn test_global_counts(
 
 async fn test_directory_counts(
     client: &BaiduNetDiskClient,
-    token: &baidu_netdisk_sdk::AccessToken,
     dir: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let categories = [
@@ -101,7 +97,7 @@ async fn test_directory_counts(
 
         match client
             .file()
-            .search_category_files_with_options(token, &category.as_u32().to_string(), options)
+            .search_category_files_with_options(&category.as_u32().to_string(), options)
             .await
         {
             Ok((_, total)) => {
@@ -120,7 +116,6 @@ async fn test_directory_counts(
 
 async fn test_list_category_files(
     client: &BaiduNetDiskClient,
-    token: &baidu_netdisk_sdk::AccessToken,
     dir: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let categories = [
@@ -143,7 +138,7 @@ async fn test_list_category_files(
 
         match client
             .file()
-            .search_category_files_with_options(token, &category.to_string(), options)
+            .search_category_files_with_options(&category.to_string(), options)
             .await
         {
             Ok((files, total)) => {
