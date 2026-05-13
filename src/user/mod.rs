@@ -9,21 +9,23 @@
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = BaiduNetDiskClient::builder().build()?;
-//! let token = client.load_token_from_env()?;
+//! client.load_token_from_env()?;
 //!
 //! // Get basic user info
-//! let user_info = client.user().get_user_info(&token, None).await?;
+//! let user_info = client.user().get_user_info(None).await?;
 //! println!("User name: {}", user_info.baidu_name);
 //!
 //! // Get real identity with v2 version
-//! let real_user_info = client.user().get_user_info(&token, Some("v2")).await?;
+//! let real_user_info = client.user().get_user_info(Some("v2")).await?;
 //! # Ok(())
 //! # }
 //! ```
 use log::{debug, info};
 use serde::Deserialize;
+use std::sync::Arc;
 
-use crate::auth::{AccessToken, UserInfo};
+use crate::auth::UserInfo;
+use crate::client::TokenGetter;
 use crate::errors::{NetDiskError, NetDiskResult};
 use crate::http::HttpClient;
 
@@ -31,21 +33,29 @@ use crate::http::HttpClient;
 #[derive(Debug, Clone)]
 pub struct UserClient {
     http_client: HttpClient,
+    token_getter: Arc<dyn TokenGetter>,
 }
 
 impl UserClient {
     /// Create a new UserClient instance
     ///
     /// Usually you don't need to call this directly - use `BaiduNetDiskClient::user()` instead
-    pub fn new(http_client: HttpClient) -> Self {
-        UserClient { http_client }
+    pub fn new(http_client: HttpClient, token_getter: Arc<dyn TokenGetter>) -> Self {
+        UserClient {
+            http_client,
+            token_getter,
+        }
+    }
+
+    /// Get a reference to the internal HTTP client
+    pub fn http_client(&self) -> &HttpClient {
+        &self.http_client
     }
 
     /// Get user information
     ///
     /// # Arguments
     ///
-    /// * `access_token` - Access token for authentication
     /// * `vip_version` - Optional vip_version parameter (set to "v2" to get real user identity)
     ///
     /// # Returns
@@ -59,21 +69,16 @@ impl UserClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
-    /// let user_info = client.user().get_user_info(&token, None).await?;
+    /// client.load_token_from_env()?;
+    /// let user_info = client.user().get_user_info(None).await?;
     /// println!("VIP type: {}", user_info.vip_type);
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn get_user_info(
-        &self,
-        access_token: &AccessToken,
-        vip_version: Option<&str>,
-    ) -> NetDiskResult<UserInfo> {
-        let mut params = vec![
-            ("method", "uinfo"),
-            ("access_token", &access_token.access_token),
-        ];
+    pub async fn get_user_info(&self, vip_version: Option<&str>) -> NetDiskResult<UserInfo> {
+        let token = self.token_getter.get_token().await?;
+
+        let mut params = vec![("method", "uinfo"), ("access_token", &token.access_token)];
 
         if let Some(v) = vip_version {
             params.push(("vip_version", v));
