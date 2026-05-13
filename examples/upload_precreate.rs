@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = BaiduNetDiskClient::builder().build()?;
     info!("Client created successfully");
 
-    let token = client.load_token_from_env()?;
+    client.load_token_from_env()?;
     info!("Token loaded successfully");
 
     let args: Vec<String> = std::env::args().collect();
@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .rtype(1);
 
     println!("Sending precreate request...");
-    match client.upload().precreate(&token, options).await {
+    match client.upload().precreate(options).await {
         Ok(response) => {
             println!("Precreate success!");
             println!("  Upload ID: {}", response.uploadid);
