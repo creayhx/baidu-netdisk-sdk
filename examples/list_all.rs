@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = BaiduNetDiskClient::builder().build()?;
     info!("Client created successfully");
 
-    let token = client.load_token_from_env()?;
+    client.load_token_from_env()?;
     info!("Token loaded successfully");
 
     let test_dir = "/apps/chapters";
@@ -43,11 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .start(start)
             .limit(page_size);
 
-        match client
-            .file()
-            .list_all_with_options(&token, test_dir, options)
-            .await
-        {
+        match client.file().list_all_with_options(test_dir, options).await {
             Ok((files, more)) => {
                 has_more = more;
 
