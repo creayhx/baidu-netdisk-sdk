@@ -73,7 +73,7 @@ pub struct DeviceCodeResponse {
 }
 
 /// Device code information with expiration timestamp
-#[derive(Debug, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DeviceCode {
     pub device_code: String,
     pub user_code: String,
@@ -123,7 +123,7 @@ pub struct AccessTokenResponse {
 }
 
 /// Access token information with acquisition timestamp
-#[derive(Debug, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AccessToken {
     /// Access token for API requests
     pub access_token: String,
@@ -365,7 +365,7 @@ mod tests {
 
         let token = create_test_token(now, 1000);
         let remaining = token.remaining_seconds();
-        assert!(remaining >= 990 && remaining <= 1000);
+        assert!((990..=1000).contains(&remaining));
 
         let expired_token = create_test_token(now - 100, 50);
         assert_eq!(expired_token.remaining_seconds(), 0);
@@ -384,7 +384,7 @@ mod tests {
 }
 
 /// Token validation status
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub enum TokenStatus {
     /// Token is valid and has plenty of time left
     Valid,
