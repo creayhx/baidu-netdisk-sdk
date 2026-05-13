@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = BaiduNetDiskClient::builder().build()?;
     info!("Client created successfully");
 
-    let token = client.load_token_from_env()?;
+    client.load_token_from_env()?;
     info!("Token loaded successfully");
 
     println!("=== Baidu NetDisk Search API Test ===");
@@ -58,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- Part 1: Keyword Search (simple) ---");
     let (files, has_more) = client
         .file()
-        .search_files(&token, "test", "/")
+        .search_files("test", "/")
         .await
         .map_err(|e| format!("Search failed: {}", e))?;
     print_file_list(&files, &format!("Results (has_more: {}):", has_more));
@@ -71,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (files, has_more) = client
         .file()
-        .search_files_with_options(&token, "*", options)
+        .search_files_with_options("*", options)
         .await
         .map_err(|e| format!("Search failed: {}", e))?;
     print_file_list(&files, &format!("Results (has_more: {}):", has_more));
@@ -83,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = SearchOptions::new("/").recursion(true);
     let (files, has_more) = client
         .file()
-        .search_files_with_options(&token, "*", options)
+        .search_files_with_options("*", options)
         .await
         .map_err(|e| format!("Search failed: {}", e))?;
     print_file_list(&files, &format!("Results (has_more: {}):", has_more));
@@ -94,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Query: \"find text files\"");
     let files = client
         .file()
-        .semantic_search(&token, "find text files")
+        .semantic_search("find text files")
         .await
         .map_err(|e| format!("Semantic search failed: {}", e))?;
     print_file_list(&files, "Results:");
@@ -105,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = SemanticSearchOptions::new().search_type(1);
     let files = client
         .file()
-        .semantic_search_with_options(&token, "search for images", options)
+        .semantic_search_with_options("search for images", options)
         .await
         .map_err(|e| format!("Semantic search failed: {}", e))?;
     print_file_list(&files, "Results:");
@@ -116,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = SemanticSearchOptions::new().search_type(2);
     let files = client
         .file()
-        .semantic_search_with_options(&token, "video files", options)
+        .semantic_search_with_options("video files", options)
         .await
         .map_err(|e| format!("Semantic search failed: {}", e))?;
     print_file_list(&files, "Results:");
