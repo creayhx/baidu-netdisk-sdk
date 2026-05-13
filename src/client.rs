@@ -1,27 +1,71 @@
+use std::fmt::Debug;
 use std::future::Future;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use dotenv::dotenv;
 use log::{debug, error, info, warn};
 
-use crate::auth::{AccessToken, QuotaInfo, TokenStatus, UserInfo};
+use crate::auth::{AccessToken, TokenStatus};
 use crate::auth::{Authorization, TokenProvider, TokenProviderConfig};
 use crate::download::DownloadClient;
 use crate::errors::{NetDiskError, NetDiskResult};
-use crate::file::{
-    BtListOptions, CategoryCountOptions, CategorySearchOptions, DocumentListOptions,
-    FileClient, FileInfo, FileMeta, FolderCreateOptions, FolderInfo, ImageListOptions,
-    ListAllOptions, ListOptions, SearchOptions, SemanticSearchOptions, VideoListOptions,
-};
+use crate::file::FileClient;
 use crate::http::{client::HttpClientConfig, HttpClient};
-use crate::playlist::{AudioQuality, MediaPlayInfo, PlaylistClient, PlaylistFileList, PlaylistList, VideoQuality};
-use crate::quota::{CapacityInfo, QuotaClient};
-use crate::upload::{CreateFileResponse, SimpleUploadOptions, UploadClient};
+use crate::playlist::PlaylistClient;
+use crate::quota::QuotaClient;
+use crate::upload::UploadClient;
 use crate::user::UserClient;
 
-pub(crate) trait ClientAccessor {
+/// Token 获取器 trait - 抽象 token 获取逻辑
+#[async_trait]
+pub trait TokenGetter: Debug + Send + Sync + 'static {
+    async fn get_token(&self) -> NetDiskResult<AccessToken>;
+}
+
+/// 动态 token 获取器 - 使用 TokenProvider 动态获取和刷新 token
+#[derive(Debug)]
+pub struct DynamicTokenGetter {
+    token_provider: Arc<TokenProvider>,
+}
+
+impl DynamicTokenGetter {
+    pub fn new(token_provider: Arc<TokenProvider>) -> Self {
+        Self { token_provider }
+    }
+}
+
+#[async_trait]
+impl TokenGetter for DynamicTokenGetter {
+    async fn get_token(&self) -> NetDiskResult<AccessToken> {
+        self.token_provider.get_valid_token().await
+    }
+}
+
+/// 静态 token 获取器 - 返回固定的 token
+#[derive(Debug)]
+pub struct StaticTokenGetter {
+    token: Arc<AccessToken>,
+}
+
+impl StaticTokenGetter {
+    pub fn new(token: AccessToken) -> Self {
+        Self {
+            token: Arc::new(token),
+        }
+    }
+}
+
+#[async_trait]
+impl TokenGetter for StaticTokenGetter {
+    async fn get_token(&self) -> NetDiskResult<AccessToken> {
+        Ok((*self.token).clone())
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) trait ClientAccessor: Send + Sync {
     fn get_token(&self) -> impl Future<Output = NetDiskResult<AccessToken>> + Send + '_;
     fn user_client(&self) -> &UserClient;
     fn quota_client(&self) -> &QuotaClient;
@@ -29,357 +73,6 @@ pub(crate) trait ClientAccessor {
     fn download_client(&self) -> &DownloadClient;
     fn upload_client(&self) -> &UploadClient;
     fn playlist_client(&self) -> &PlaylistClient;
-}
-
-pub trait NetDiskApi {
-    fn get_user_info(&self, vip_version: Option<&str>) -> impl Future<Output = NetDiskResult<UserInfo>> + Send;
-    fn get_quota(&self) -> impl Future<Output = NetDiskResult<QuotaInfo>> + Send;
-    fn get_capacity(&self, check_free: bool, check_expire: bool) -> impl Future<Output = NetDiskResult<CapacityInfo>> + Send;
-    fn get_quota_with_expire(&self) -> impl Future<Output = NetDiskResult<CapacityInfo>> + Send;
-    fn list_directory(&self, dir: &str) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
-    fn list_directory_with_options(&self, dir: &str, options: ListOptions) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
-    fn list_all(&self, path: &str) -> impl Future<Output = NetDiskResult<(Vec<FileInfo>, bool)>> + Send;
-    fn list_all_with_options(&self, path: &str, options: ListAllOptions) -> impl Future<Output = NetDiskResult<(Vec<FileInfo>, bool)>> + Send;
-    fn get_file_info(&self, path: &str) -> impl Future<Output = NetDiskResult<FileInfo>> + Send;
-    fn get_file_meta(&self, fs_id: u64) -> impl Future<Output = NetDiskResult<FileMeta>> + Send;
-    fn search_files(&self, key: &str, dir: &str) -> impl Future<Output = NetDiskResult<(Vec<FileInfo>, bool)>> + Send;
-    fn search_files_with_options(&self, key: &str, options: SearchOptions) -> impl Future<Output = NetDiskResult<(Vec<FileInfo>, bool)>> + Send;
-    fn semantic_search(&self, query: &str) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
-    fn semantic_search_with_options(&self, query: &str, options: SemanticSearchOptions) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
-    fn get_category_file_count(&self, category: u32) -> impl Future<Output = NetDiskResult<u64>> + Send;
-    fn get_category_file_count_with_options(&self, category: u32, options: CategoryCountOptions) -> impl Future<Output = NetDiskResult<u64>> + Send;
-    fn search_category_files(&self, category: u32, start: i32, limit: i32) -> impl Future<Output = NetDiskResult<(Vec<FileInfo>, u64)>> + Send;
-    fn search_category_files_with_options(&self, category: &str, options: CategorySearchOptions) -> impl Future<Output = NetDiskResult<(Vec<FileInfo>, u64)>> + Send;
-    fn list_documents(&self, parent_path: &str, page: i32, num: i32) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
-    fn list_documents_with_options(&self, options: DocumentListOptions) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
-    fn list_images(&self, parent_path: &str, page: i32, num: i32) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
-    fn list_images_with_options(&self, options: ImageListOptions) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
-    fn list_videos(&self, parent_path: &str, page: i32, num: i32) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
-    fn list_videos_with_options(&self, options: VideoListOptions) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
-    fn list_torrents(&self, parent_path: &str, page: i32, num: i32) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
-    fn list_torrents_with_options(&self, options: BtListOptions) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
-    fn create_folder(&self, path: &str) -> impl Future<Output = NetDiskResult<FolderInfo>> + Send;
-    fn create_folder_with_options(&self, path: &str, options: FolderCreateOptions) -> impl Future<Output = NetDiskResult<FolderInfo>> + Send;
-    fn delete_file(&self, path: &str) -> impl Future<Output = NetDiskResult<()>> + Send;
-    fn rename_file(&self, path: &str, new_name: &str) -> impl Future<Output = NetDiskResult<()>> + Send;
-    fn move_file(&self, path: &str, dest: &str) -> impl Future<Output = NetDiskResult<()>> + Send;
-    fn copy_file(&self, path: &str, dest: &str) -> impl Future<Output = NetDiskResult<()>> + Send;
-    fn upload_file<P: AsRef<std::path::Path> + Send>(&self, local_path: P, remote_path: &str) -> impl Future<Output = NetDiskResult<CreateFileResponse>> + Send;
-    fn upload_file_with_options<P: AsRef<std::path::Path> + Send>(
-        &self,
-        local_path: P,
-        remote_path: &str,
-        options: SimpleUploadOptions,
-    ) -> impl Future<Output = NetDiskResult<CreateFileResponse>> + Send;
-    fn upload_bytes(&self, data: &[u8], remote_path: &str) -> impl Future<Output = NetDiskResult<CreateFileResponse>> + Send;
-    fn upload_bytes_with_options(&self, data: &[u8], remote_path: &str, options: SimpleUploadOptions) -> impl Future<Output = NetDiskResult<CreateFileResponse>> + Send;
-    fn auto_download(&self, path: &str, save_path: impl AsRef<Path> + Send) -> impl Future<Output = NetDiskResult<()>> + Send;
-    fn auto_download_by_fsid(&self, fs_id: u64, save_path: impl AsRef<Path> + Send) -> impl Future<Output = NetDiskResult<()>> + Send;
-    fn download_single(&self, path: &str, save_path: impl AsRef<Path> + Send) -> impl Future<Output = NetDiskResult<()>> + Send;
-    fn download_single_by_fsid(&self, fs_id: u64, save_path: impl AsRef<Path> + Send) -> impl Future<Output = NetDiskResult<()>> + Send;
-    fn download_parallel(&self, path: &str, save_path: impl AsRef<Path> + Send, thread_num: Option<usize>) -> impl Future<Output = NetDiskResult<()>> + Send;
-    fn download_parallel_by_fsid(&self, fs_id: u64, save_path: impl AsRef<Path> + Send, thread_num: Option<usize>) -> impl Future<Output = NetDiskResult<()>> + Send;
-    fn download_streaming(&self, path: &str, save_path: impl AsRef<Path> + Send, max_concurrency: usize) -> impl Future<Output = NetDiskResult<()>> + Send;
-    fn download_streaming_by_fsid(&self, fs_id: u64, save_path: impl AsRef<Path> + Send, max_concurrency: usize) -> impl Future<Output = NetDiskResult<()>> + Send;
-    fn get_dlink_from_path(&self, path: &str) -> impl Future<Output = NetDiskResult<FileMeta>> + Send;
-    fn get_dlink_from_fsid(&self, fs_id: u64) -> impl Future<Output = NetDiskResult<FileMeta>> + Send;
-    fn get_playlist_list(&self) -> impl Future<Output = NetDiskResult<PlaylistList>> + Send;
-    fn get_playlist_list_with_options(&self, options: crate::playlist::PlaylistListOptions) -> impl Future<Output = NetDiskResult<PlaylistList>> + Send;
-    fn get_playlist_file_list(&self, mb_id: u64) -> impl Future<Output = NetDiskResult<PlaylistFileList>> + Send;
-    fn get_playlist_file_list_with_options(&self, mb_id: u64, options: crate::playlist::PlaylistFileListOptions) -> impl Future<Output = NetDiskResult<PlaylistFileList>> + Send;
-    fn get_media_play_info(&self, fsid: Option<u64>, path: Option<&str>, media_type: &str) -> impl Future<Output = NetDiskResult<MediaPlayInfo>> + Send;
-    fn get_media_m3u8_content(&self, path: &str, media_type: &str) -> impl Future<Output = NetDiskResult<String>> + Send;
-    fn get_video_m3u8(&self, path: &str, quality: VideoQuality) -> impl Future<Output = NetDiskResult<String>> + Send;
-    fn get_video_m3u8_highest(&self, path: &str, vip_level: u32) -> impl Future<Output = NetDiskResult<String>> + Send;
-    fn get_audio_m3u8(&self, path: &str, quality: AudioQuality) -> impl Future<Output = NetDiskResult<String>> + Send;
-    fn get_audio_m3u8_default(&self, path: &str) -> impl Future<Output = NetDiskResult<String>> + Send;
-}
-
-impl<T: ClientAccessor + Send + Sync> NetDiskApi for T {
-    async fn get_user_info(&self, vip_version: Option<&str>) -> NetDiskResult<UserInfo> {
-        let token = self.get_token().await?;
-        self.user_client().get_user_info(&token, vip_version).await
-    }
-
-    async fn get_quota(&self) -> NetDiskResult<QuotaInfo> {
-        let token = self.get_token().await?;
-        self.quota_client().get_quota(&token).await
-    }
-
-    async fn get_capacity(&self, check_free: bool, check_expire: bool) -> NetDiskResult<CapacityInfo> {
-        let token = self.get_token().await?;
-        self.quota_client().get_capacity(&token, check_free, check_expire).await
-    }
-
-    async fn get_quota_with_expire(&self) -> NetDiskResult<CapacityInfo> {
-        let token = self.get_token().await?;
-        self.quota_client().get_quota_with_expire(&token).await
-    }
-
-    async fn list_directory(&self, dir: &str) -> NetDiskResult<Vec<FileInfo>> {
-        let token = self.get_token().await?;
-        self.file_client().list_directory(&token, dir).await
-    }
-
-    async fn list_directory_with_options(&self, dir: &str, options: ListOptions) -> NetDiskResult<Vec<FileInfo>> {
-        let token = self.get_token().await?;
-        self.file_client().list_directory_with_options(&token, dir, options).await
-    }
-
-    async fn list_all(&self, path: &str) -> NetDiskResult<(Vec<FileInfo>, bool)> {
-        let token = self.get_token().await?;
-        self.file_client().list_all(&token, path).await
-    }
-
-    async fn list_all_with_options(&self, path: &str, options: ListAllOptions) -> NetDiskResult<(Vec<FileInfo>, bool)> {
-        let token = self.get_token().await?;
-        self.file_client().list_all_with_options(&token, path, options).await
-    }
-
-    async fn get_file_info(&self, path: &str) -> NetDiskResult<FileInfo> {
-        let token = self.get_token().await?;
-        self.file_client().get_file_info(&token, path).await
-    }
-
-    async fn get_file_meta(&self, fs_id: u64) -> NetDiskResult<FileMeta> {
-        let token = self.get_token().await?;
-        self.file_client().get_file_meta(&token, fs_id).await
-    }
-
-    async fn search_files(&self, key: &str, dir: &str) -> NetDiskResult<(Vec<FileInfo>, bool)> {
-        let token = self.get_token().await?;
-        self.file_client().search_files(&token, key, dir).await
-    }
-
-    async fn search_files_with_options(&self, key: &str, options: SearchOptions) -> NetDiskResult<(Vec<FileInfo>, bool)> {
-        let token = self.get_token().await?;
-        self.file_client().search_files_with_options(&token, key, options).await
-    }
-
-    async fn semantic_search(&self, query: &str) -> NetDiskResult<Vec<FileInfo>> {
-        let token = self.get_token().await?;
-        self.file_client().semantic_search(&token, query).await
-    }
-
-    async fn semantic_search_with_options(&self, query: &str, options: SemanticSearchOptions) -> NetDiskResult<Vec<FileInfo>> {
-        let token = self.get_token().await?;
-        self.file_client().semantic_search_with_options(&token, query, options).await
-    }
-
-    async fn get_category_file_count(&self, category: u32) -> NetDiskResult<u64> {
-        let token = self.get_token().await?;
-        self.file_client().get_category_file_count(&token, category).await
-    }
-
-    async fn get_category_file_count_with_options(&self, category: u32, options: CategoryCountOptions) -> NetDiskResult<u64> {
-        let token = self.get_token().await?;
-        self.file_client().get_category_file_count_with_options(&token, category, options).await
-    }
-
-    async fn search_category_files(&self, category: u32, start: i32, limit: i32) -> NetDiskResult<(Vec<FileInfo>, u64)> {
-        let token = self.get_token().await?;
-        self.file_client().search_category_files(&token, category, start, limit).await
-    }
-
-    async fn search_category_files_with_options(&self, category: &str, options: CategorySearchOptions) -> NetDiskResult<(Vec<FileInfo>, u64)> {
-        let token = self.get_token().await?;
-        self.file_client().search_category_files_with_options(&token, category, options).await
-    }
-
-    async fn list_documents(&self, parent_path: &str, page: i32, num: i32) -> NetDiskResult<Vec<FileInfo>> {
-        let token = self.get_token().await?;
-        self.file_client().list_documents(&token, parent_path, page, num).await
-    }
-
-    async fn list_documents_with_options(&self, options: DocumentListOptions) -> NetDiskResult<Vec<FileInfo>> {
-        let token = self.get_token().await?;
-        self.file_client().list_documents_with_options(&token, options).await
-    }
-
-    async fn list_images(&self, parent_path: &str, page: i32, num: i32) -> NetDiskResult<Vec<FileInfo>> {
-        let token = self.get_token().await?;
-        self.file_client().list_images(&token, parent_path, page, num).await
-    }
-
-    async fn list_images_with_options(&self, options: ImageListOptions) -> NetDiskResult<Vec<FileInfo>> {
-        let token = self.get_token().await?;
-        self.file_client().list_images_with_options(&token, options).await
-    }
-
-    async fn list_videos(&self, parent_path: &str, page: i32, num: i32) -> NetDiskResult<Vec<FileInfo>> {
-        let token = self.get_token().await?;
-        self.file_client().list_videos(&token, parent_path, page, num).await
-    }
-
-    async fn list_videos_with_options(&self, options: VideoListOptions) -> NetDiskResult<Vec<FileInfo>> {
-        let token = self.get_token().await?;
-        self.file_client().list_videos_with_options(&token, options).await
-    }
-
-    async fn list_torrents(&self, parent_path: &str, page: i32, num: i32) -> NetDiskResult<Vec<FileInfo>> {
-        let token = self.get_token().await?;
-        self.file_client().list_torrents(&token, parent_path, page, num).await
-    }
-
-    async fn list_torrents_with_options(&self, options: BtListOptions) -> NetDiskResult<Vec<FileInfo>> {
-        let token = self.get_token().await?;
-        self.file_client().list_torrents_with_options(&token, options).await
-    }
-
-    async fn create_folder(&self, path: &str) -> NetDiskResult<FolderInfo> {
-        let token = self.get_token().await?;
-        self.file_client().create_folder(&token, path).await
-    }
-
-    async fn create_folder_with_options(&self, path: &str, options: FolderCreateOptions) -> NetDiskResult<FolderInfo> {
-        let token = self.get_token().await?;
-        self.file_client().create_folder_with_options(&token, path, options).await
-    }
-
-    async fn delete_file(&self, path: &str) -> NetDiskResult<()> {
-        let token = self.get_token().await?;
-        self.file_client().delete(&token, path).await
-    }
-
-    async fn rename_file(&self, path: &str, new_name: &str) -> NetDiskResult<()> {
-        let token = self.get_token().await?;
-        self.file_client().rename(&token, path, new_name).await
-    }
-
-    async fn move_file(&self, path: &str, dest: &str) -> NetDiskResult<()> {
-        let token = self.get_token().await?;
-        self.file_client().move_file(&token, path, dest).await
-    }
-
-    async fn copy_file(&self, path: &str, dest: &str) -> NetDiskResult<()> {
-        let token = self.get_token().await?;
-        self.file_client().copy_file(&token, path, dest).await
-    }
-
-    async fn upload_file<P: AsRef<std::path::Path> + Send>(&self, local_path: P, remote_path: &str) -> NetDiskResult<CreateFileResponse> {
-        let token = self.get_token().await?;
-        self.upload_client().upload_file(&token, local_path, remote_path).await
-    }
-
-    async fn upload_file_with_options<P: AsRef<std::path::Path> + Send>(
-        &self,
-        local_path: P,
-        remote_path: &str,
-        options: SimpleUploadOptions,
-    ) -> NetDiskResult<CreateFileResponse> {
-        let token = self.get_token().await?;
-        self.upload_client().upload_file_with_options(&token, local_path, remote_path, options).await
-    }
-
-    async fn upload_bytes(&self, data: &[u8], remote_path: &str) -> NetDiskResult<CreateFileResponse> {
-        let token = self.get_token().await?;
-        self.upload_client().upload_bytes(&token, data, remote_path).await
-    }
-
-    async fn auto_download(&self, path: &str, save_path: impl AsRef<Path> + Send) -> NetDiskResult<()> {
-        let token = self.get_token().await?;
-        self.download_client().auto_download(&token, path, save_path).await
-    }
-
-    async fn auto_download_by_fsid(&self, fs_id: u64, save_path: impl AsRef<Path> + Send) -> NetDiskResult<()> {
-        let token = self.get_token().await?;
-        self.download_client().auto_download_by_fsid(&token, fs_id, save_path).await
-    }
-
-    async fn download_single(&self, path: &str, save_path: impl AsRef<Path> + Send) -> NetDiskResult<()> {
-        let token = self.get_token().await?;
-        self.download_client().download_single(&token, path, save_path).await
-    }
-
-    async fn download_parallel(&self, path: &str, save_path: impl AsRef<Path> + Send, thread_num: Option<usize>) -> NetDiskResult<()> {
-        let token = self.get_token().await?;
-        self.download_client().download_parallel(&token, path, save_path, thread_num).await
-    }
-
-    async fn download_streaming(&self, path: &str, save_path: impl AsRef<Path> + Send, max_concurrency: usize) -> NetDiskResult<()> {
-        let token = self.get_token().await?;
-        self.download_client().download_streaming(&token, path, save_path, max_concurrency).await
-    }
-
-    async fn upload_bytes_with_options(&self, data: &[u8], remote_path: &str, options: SimpleUploadOptions) -> NetDiskResult<CreateFileResponse> {
-        let token = self.get_token().await?;
-        self.upload_client().upload_bytes_with_options(&token, data, remote_path, options).await
-    }
-
-    async fn download_single_by_fsid(&self, fs_id: u64, save_path: impl AsRef<Path> + Send) -> NetDiskResult<()> {
-        let token = self.get_token().await?;
-        self.download_client().download_single_by_fsid(&token, fs_id, save_path).await
-    }
-
-    async fn download_parallel_by_fsid(&self, fs_id: u64, save_path: impl AsRef<Path> + Send, thread_num: Option<usize>) -> NetDiskResult<()> {
-        let token = self.get_token().await?;
-        self.download_client().download_parallel_by_fsid(&token, fs_id, save_path, thread_num).await
-    }
-
-    async fn download_streaming_by_fsid(&self, fs_id: u64, save_path: impl AsRef<Path> + Send, max_concurrency: usize) -> NetDiskResult<()> {
-        let token = self.get_token().await?;
-        self.download_client().download_streaming_by_fsid(&token, fs_id, save_path, max_concurrency).await
-    }
-
-    async fn get_dlink_from_path(&self, path: &str) -> NetDiskResult<FileMeta> {
-        let token = self.get_token().await?;
-        self.download_client().get_dlink_from_path(&token, path).await
-    }
-
-    async fn get_dlink_from_fsid(&self, fs_id: u64) -> NetDiskResult<FileMeta> {
-        let token = self.get_token().await?;
-        self.download_client().get_dlink_from_fsid(&token, fs_id).await
-    }
-
-    async fn get_playlist_list(&self) -> NetDiskResult<PlaylistList> {
-        let token = self.get_token().await?;
-        self.playlist_client().get_playlist_list(&token).await
-    }
-
-    async fn get_playlist_list_with_options(&self, options: crate::playlist::PlaylistListOptions) -> NetDiskResult<PlaylistList> {
-        let token = self.get_token().await?;
-        self.playlist_client().get_playlist_list_with_options(&token, options).await
-    }
-
-    async fn get_playlist_file_list(&self, mb_id: u64) -> NetDiskResult<PlaylistFileList> {
-        let token = self.get_token().await?;
-        self.playlist_client().get_playlist_file_list(&token, mb_id).await
-    }
-
-    async fn get_playlist_file_list_with_options(&self, mb_id: u64, options: crate::playlist::PlaylistFileListOptions) -> NetDiskResult<PlaylistFileList> {
-        let token = self.get_token().await?;
-        self.playlist_client().get_playlist_file_list_with_options(&token, mb_id, options).await
-    }
-
-    async fn get_media_play_info(&self, fsid: Option<u64>, path: Option<&str>, media_type: &str) -> NetDiskResult<MediaPlayInfo> {
-        let token = self.get_token().await?;
-        self.playlist_client().get_media_play_info(&token, fsid, path, media_type).await
-    }
-
-    async fn get_media_m3u8_content(&self, path: &str, media_type: &str) -> NetDiskResult<String> {
-        let token = self.get_token().await?;
-        self.playlist_client().get_media_m3u8_content(&token, path, media_type).await
-    }
-
-    async fn get_video_m3u8(&self, path: &str, quality: VideoQuality) -> NetDiskResult<String> {
-        let token = self.get_token().await?;
-        self.playlist_client().get_video_m3u8(&token, path, quality).await
-    }
-
-    async fn get_video_m3u8_highest(&self, path: &str, vip_level: u32) -> NetDiskResult<String> {
-        let token = self.get_token().await?;
-        self.playlist_client().get_video_m3u8_highest(&token, path, vip_level).await
-    }
-
-    async fn get_audio_m3u8(&self, path: &str, quality: AudioQuality) -> NetDiskResult<String> {
-        let token = self.get_token().await?;
-        self.playlist_client().get_audio_m3u8(&token, path, quality).await
-    }
-
-    async fn get_audio_m3u8_default(&self, path: &str) -> NetDiskResult<String> {
-        let token = self.get_token().await?;
-        self.playlist_client().get_audio_m3u8_default(&token, path).await
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -444,7 +137,7 @@ impl BaiduNetDiskClient {
         self.token_provider.set_access_token(token)
     }
 
-    pub fn load_token_from_env(&self) -> NetDiskResult<AccessToken> {
+    pub fn load_token_from_env(&self) -> NetDiskResult<()> {
         dotenv().ok();
 
         let access_token = std::env::var("BD_NETDISK_ACCESS_TOKEN").map_err(|_| {
@@ -518,7 +211,7 @@ impl BaiduNetDiskClient {
             token.expires_at()
         );
 
-        Ok(token)
+        Ok(())
     }
 
     pub fn validate_token(&self) -> NetDiskResult<TokenStatus> {
@@ -526,21 +219,48 @@ impl BaiduNetDiskClient {
     }
 
     pub fn with_token(&self, token: AccessToken) -> TokenScopedClient {
+        let token_getter: Arc<dyn TokenGetter> = Arc::new(StaticTokenGetter::new(token.clone()));
+
+        let user_client = Arc::new(UserClient::new(
+            self.user_client.http_client().clone(),
+            token_getter.clone(),
+        ));
+        let quota_client = Arc::new(QuotaClient::new(
+            self.quota_client.http_client().clone(),
+            token_getter.clone(),
+        ));
+        let file_client = Arc::new(FileClient::new(
+            self.file_client.http_client().clone(),
+            token_getter.clone(),
+        ));
+        let download_client = Arc::new(DownloadClient::new(
+            file_client.clone(),
+            token_getter.clone(),
+        ));
+        let upload_client = Arc::new(UploadClient::new(
+            self.upload_client.http_client().clone(),
+            token_getter.clone(),
+        ));
+        let playlist_client = Arc::new(PlaylistClient::new(
+            self.playlist_client.http_client().clone(),
+            token_getter.clone(),
+        ));
+
         TokenScopedClient::new(
             Arc::new(token),
-            Arc::clone(&self.user_client),
-            Arc::clone(&self.quota_client),
-            Arc::clone(&self.file_client),
-            Arc::clone(&self.download_client),
-            Arc::clone(&self.upload_client),
-            Arc::clone(&self.playlist_client),
+            user_client,
+            quota_client,
+            file_client,
+            download_client,
+            upload_client,
+            playlist_client,
         )
     }
 }
 
 impl ClientAccessor for BaiduNetDiskClient {
-    fn get_token(&self) -> impl Future<Output = NetDiskResult<AccessToken>> + Send + '_ {
-        self.get_valid_token()
+    async fn get_token(&self) -> NetDiskResult<AccessToken> {
+        self.get_valid_token().await
     }
 
     fn user_client(&self) -> &UserClient {
@@ -630,8 +350,8 @@ impl TokenScopedClient {
 }
 
 impl ClientAccessor for TokenScopedClient {
-    fn get_token(&self) -> impl Future<Output = NetDiskResult<AccessToken>> + Send + '_ {
-        std::future::ready(Ok((*self.token).clone()))
+    async fn get_token(&self) -> NetDiskResult<AccessToken> {
+        Ok((*self.token).clone())
     }
 
     fn user_client(&self) -> &UserClient {
@@ -776,12 +496,22 @@ impl ClientBuilder {
 
         info!("BaiduNetDiskClient created successfully");
 
-        let user_client = Arc::new(UserClient::new(http_client.clone()));
-        let quota_client = Arc::new(QuotaClient::new(http_client.clone()));
-        let file_client = Arc::new(FileClient::new(http_client.clone()));
-        let download_client = Arc::new(DownloadClient::new(file_client.clone()));
-        let upload_client = Arc::new(UploadClient::new(http_client.clone()));
-        let playlist_client = Arc::new(PlaylistClient::new(http_client.clone()));
+        let token_provider_ref = Arc::new(token_provider.clone());
+        let token_getter: Arc<dyn TokenGetter> =
+            Arc::new(DynamicTokenGetter::new(token_provider_ref));
+
+        let user_client = Arc::new(UserClient::new(http_client.clone(), token_getter.clone()));
+        let quota_client = Arc::new(QuotaClient::new(http_client.clone(), token_getter.clone()));
+        let file_client = Arc::new(FileClient::new(http_client.clone(), token_getter.clone()));
+        let download_client = Arc::new(DownloadClient::new(
+            file_client.clone(),
+            token_getter.clone(),
+        ));
+        let upload_client = Arc::new(UploadClient::new(http_client.clone(), token_getter.clone()));
+        let playlist_client = Arc::new(PlaylistClient::new(
+            http_client.clone(),
+            token_getter.clone(),
+        ));
 
         Ok(BaiduNetDiskClient {
             token_provider,
@@ -862,14 +592,17 @@ mod tests {
 
         assert!(client.is_ok());
         let client = client.unwrap();
-        
+
         assert_eq!(client.config().app_id, "test_app_id");
         assert_eq!(client.config().app_key, "test_app_key");
         assert_eq!(client.config().app_secret, "test_app_secret");
         assert_eq!(client.config().app_name, "Test App");
         assert_eq!(client.config().scope, "basic,netdisk");
         assert_eq!(client.config().http_config.timeout, Duration::from_secs(60));
-        assert_eq!(client.config().http_config.connect_timeout, Duration::from_secs(10));
+        assert_eq!(
+            client.config().http_config.connect_timeout,
+            Duration::from_secs(10)
+        );
         assert_eq!(client.config().http_config.max_retries, 5);
         assert_eq!(client.config().http_config.user_agent, "TestAgent/1.0");
         assert!(client.config().token_config.auto_refresh);
@@ -908,12 +641,19 @@ mod tests {
         };
 
         let http_client = HttpClient::new(HttpClientConfig::default()).unwrap();
-        let user_client = Arc::new(UserClient::new(http_client.clone()));
-        let quota_client = Arc::new(QuotaClient::new(http_client.clone()));
-        let file_client = Arc::new(FileClient::new(http_client.clone()));
-        let download_client = Arc::new(DownloadClient::new(file_client.clone()));
-        let upload_client = Arc::new(UploadClient::new(http_client.clone()));
-        let playlist_client = Arc::new(PlaylistClient::new(http_client.clone()));
+        let token_getter: Arc<dyn TokenGetter> = Arc::new(StaticTokenGetter::new(token.clone()));
+        let user_client = Arc::new(UserClient::new(http_client.clone(), token_getter.clone()));
+        let quota_client = Arc::new(QuotaClient::new(http_client.clone(), token_getter.clone()));
+        let file_client = Arc::new(FileClient::new(http_client.clone(), token_getter.clone()));
+        let download_client = Arc::new(DownloadClient::new(
+            file_client.clone(),
+            token_getter.clone(),
+        ));
+        let upload_client = Arc::new(UploadClient::new(http_client.clone(), token_getter.clone()));
+        let playlist_client = Arc::new(PlaylistClient::new(
+            http_client.clone(),
+            token_getter.clone(),
+        ));
 
         let scoped_client = TokenScopedClient::new(
             Arc::new(token.clone()),
@@ -951,7 +691,7 @@ mod tests {
         let scoped_client = client.with_token(token.clone());
 
         assert_eq!(scoped_client.token().access_token, token.access_token);
-        
+
         let _ = scoped_client.user();
         let _ = scoped_client.quota();
         let _ = scoped_client.file();
@@ -973,12 +713,19 @@ mod tests {
         };
 
         let http_client = HttpClient::new(HttpClientConfig::default()).unwrap();
-        let user_client = Arc::new(UserClient::new(http_client.clone()));
-        let quota_client = Arc::new(QuotaClient::new(http_client.clone()));
-        let file_client = Arc::new(FileClient::new(http_client.clone()));
-        let download_client = Arc::new(DownloadClient::new(file_client.clone()));
-        let upload_client = Arc::new(UploadClient::new(http_client.clone()));
-        let playlist_client = Arc::new(PlaylistClient::new(http_client.clone()));
+        let token_getter: Arc<dyn TokenGetter> = Arc::new(StaticTokenGetter::new(token.clone()));
+        let user_client = Arc::new(UserClient::new(http_client.clone(), token_getter.clone()));
+        let quota_client = Arc::new(QuotaClient::new(http_client.clone(), token_getter.clone()));
+        let file_client = Arc::new(FileClient::new(http_client.clone(), token_getter.clone()));
+        let download_client = Arc::new(DownloadClient::new(
+            file_client.clone(),
+            token_getter.clone(),
+        ));
+        let upload_client = Arc::new(UploadClient::new(http_client.clone(), token_getter.clone()));
+        let playlist_client = Arc::new(PlaylistClient::new(
+            http_client.clone(),
+            token_getter.clone(),
+        ));
 
         let scoped_client = TokenScopedClient::new(
             Arc::new(token.clone()),
@@ -1028,7 +775,9 @@ mod tests {
 
         assert_eq!(scoped_client1.token().access_token, "token1");
         assert_eq!(scoped_client2.token().access_token, "token2");
-        assert_ne!(scoped_client1.token().access_token, scoped_client2.token().access_token);
+        assert_ne!(
+            scoped_client1.token().access_token,
+            scoped_client2.token().access_token
+        );
     }
-
-    }
+}
