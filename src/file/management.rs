@@ -1,76 +1,46 @@
+use std::future::Future;
+
 /// File management module
 ///
 /// Provides file and folder management functionality (create, rename, delete, move, copy)
 use log::{debug, info};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::FileClient;
-use crate::auth::AccessToken;
 use crate::errors::{NetDiskError, NetDiskResult};
 
 /// Extension trait for file management operations
 pub(crate) trait FileManagementExt {
-    fn create_folder(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-    ) -> impl std::future::Future<Output = NetDiskResult<FolderInfo>> + Send;
+    fn create_folder(&self, path: &str) -> impl Future<Output = NetDiskResult<FolderInfo>> + Send;
 
     fn create_folder_with_options(
         &self,
-        access_token: &AccessToken,
         path: &str,
         options: FolderCreateOptions,
-    ) -> impl std::future::Future<Output = NetDiskResult<FolderInfo>> + Send;
+    ) -> impl Future<Output = NetDiskResult<FolderInfo>> + Send;
 
-    fn rename(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-        new_name: &str,
-    ) -> impl std::future::Future<Output = NetDiskResult<()>> + Send;
+    fn rename(&self, path: &str, new_name: &str) -> impl Future<Output = NetDiskResult<()>> + Send;
 
-    fn delete(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-    ) -> impl std::future::Future<Output = NetDiskResult<()>> + Send;
+    fn delete(&self, path: &str) -> impl Future<Output = NetDiskResult<()>> + Send;
 
-    fn move_file(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-        dest: &str,
-    ) -> impl std::future::Future<Output = NetDiskResult<()>> + Send;
+    fn move_file(&self, path: &str, dest: &str) -> impl Future<Output = NetDiskResult<()>> + Send;
 
-    fn copy_file(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-        dest: &str,
-    ) -> impl std::future::Future<Output = NetDiskResult<()>> + Send;
+    fn copy_file(&self, path: &str, dest: &str) -> impl Future<Output = NetDiskResult<()>> + Send;
 }
 
 impl FileManagementExt for FileClient {
-    async fn create_folder(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-    ) -> NetDiskResult<FolderInfo> {
-        self.create_folder_with_options(access_token, path, FolderCreateOptions::default())
+    async fn create_folder(&self, path: &str) -> NetDiskResult<FolderInfo> {
+        self.create_folder_with_options(path, FolderCreateOptions::default())
             .await
     }
 
     async fn create_folder_with_options(
         &self,
-        access_token: &AccessToken,
         path: &str,
         options: FolderCreateOptions,
     ) -> NetDiskResult<FolderInfo> {
-        let params = [
-            ("method", "create"),
-            ("access_token", &access_token.access_token),
-        ];
+        let token = self.token_getter.get_token().await?;
+        let params = [("method", "create"), ("access_token", &token.access_token)];
 
         let form = [
             ("path", path),
@@ -106,12 +76,8 @@ impl FileManagementExt for FileClient {
         })
     }
 
-    async fn rename(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-        new_name: &str,
-    ) -> NetDiskResult<()> {
+    async fn rename(&self, path: &str, new_name: &str) -> NetDiskResult<()> {
+        let token = self.token_getter.get_token().await?;
         let filelist = serde_json::json!([
             {
                 "path": path,
@@ -121,7 +87,7 @@ impl FileManagementExt for FileClient {
 
         let params = [
             ("method", "filemanager"),
-            ("access_token", &access_token.access_token),
+            ("access_token", &token.access_token),
             ("opera", "rename"),
         ];
 
@@ -146,7 +112,8 @@ impl FileManagementExt for FileClient {
         Ok(())
     }
 
-    async fn delete(&self, access_token: &AccessToken, path: &str) -> NetDiskResult<()> {
+    async fn delete(&self, path: &str) -> NetDiskResult<()> {
+        let token = self.token_getter.get_token().await?;
         let filelist = serde_json::json!([
             {
                 "path": path
@@ -155,7 +122,7 @@ impl FileManagementExt for FileClient {
 
         let params = [
             ("method", "filemanager"),
-            ("access_token", &access_token.access_token),
+            ("access_token", &token.access_token),
             ("opera", "delete"),
         ];
 
@@ -180,12 +147,8 @@ impl FileManagementExt for FileClient {
         Ok(())
     }
 
-    async fn move_file(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-        dest: &str,
-    ) -> NetDiskResult<()> {
+    async fn move_file(&self, path: &str, dest: &str) -> NetDiskResult<()> {
+        let token = self.token_getter.get_token().await?;
         let filename = path.rsplit('/').next().unwrap_or(path);
 
         let filelist = serde_json::json!([
@@ -199,7 +162,7 @@ impl FileManagementExt for FileClient {
 
         let params = [
             ("method", "filemanager"),
-            ("access_token", &access_token.access_token),
+            ("access_token", &token.access_token),
             ("opera", "move"),
         ];
 
@@ -224,12 +187,8 @@ impl FileManagementExt for FileClient {
         Ok(())
     }
 
-    async fn copy_file(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-        dest: &str,
-    ) -> NetDiskResult<()> {
+    async fn copy_file(&self, path: &str, dest: &str) -> NetDiskResult<()> {
+        let token = self.token_getter.get_token().await?;
         let filename = path.rsplit('/').next().unwrap_or(path);
 
         let filelist = serde_json::json!([
@@ -243,7 +202,7 @@ impl FileManagementExt for FileClient {
 
         let params = [
             ("method", "filemanager"),
-            ("access_token", &access_token.access_token),
+            ("access_token", &token.access_token),
             ("opera", "copy"),
         ];
 
@@ -269,7 +228,7 @@ impl FileManagementExt for FileClient {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 pub struct FolderCreateOptions {
     pub rtype: i32,
     pub mode: i32,
@@ -291,7 +250,7 @@ impl FolderCreateOptions {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct FolderInfo {
     pub fs_id: Option<u64>,
     pub path: String,
