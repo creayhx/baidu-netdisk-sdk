@@ -12,7 +12,6 @@ A Rust SDK for Baidu NetDisk Open Platform API, providing file management, uploa
 - **Thread Safety**: Uses `RwLock` for concurrent safety
 - **Flexible Configuration**: Builder pattern for easy client configuration
 - **Async First**: Built on `tokio` async runtime
-- **Convenient Shortcut APIs**: Client automatically encapsulates submodule methods and manages tokens internally
 
 ## Installation
 
@@ -20,13 +19,11 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-baidu-netdisk-sdk = "0.1.3"
+baidu-netdisk-sdk = "0.1.4"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
 ## Quick Start
-
-> **Note**: The `BaiduNetDiskClient` encapsulates all submodule methods and automatically manages tokens internally. Most operations can be called directly on the client without needing to access submodules or pass tokens explicitly.
 
 ### 1. Create Client
 
@@ -61,17 +58,17 @@ let token = loop {
 ### 3. File Operations
 
 ```rust
-// List directory - using shortcut API (no explicit token required)
-let files = client.list_directory("/").await?;
+// List directory
+let files = client.file().list_directory("/").await?;
 
-// Search files - using shortcut API
-let (results, has_more) = client.search_files("documents", "/").await?;
+// Search files
+let (results, has_more) = client.file().search_files("documents", "/").await?;
 
-// Upload file - using shortcut API
-client.upload_file("local/path.txt", "/remote/path.txt").await?;
+// Upload file
+client.upload().upload_file("local/path.txt", "/remote/path.txt").await?;
 
-// Download file - using shortcut API
-client.download_single("/remote/file.txt", "./local/file.txt").await?;
+// Download file
+client.download().download_single("/remote/file.txt", "./local/file.txt").await?;
 ```
 
 ### 4. TokenScopedClient for Multi-User Scenarios
@@ -83,8 +80,8 @@ For multi-user scenarios where you need to use multiple tokens concurrently, you
 let scoped_client = client.with_token(token);
 
 // Use the scoped client - token is automatically used
-let files = scoped_client.list_directory("/").await?;
-let quota = scoped_client.get_quota().await?;
+let files = scoped_client.file().list_directory("/").await?;
+let quota = scoped_client.quota().get_quota().await?;
 
 // Each scoped client has its own isolated token context
 // Multiple scoped clients can be used concurrently without conflicts
@@ -93,7 +90,7 @@ let quota = scoped_client.get_quota().await?;
 **Key Benefits of TokenScopedClient:**
 - **Thread-safe**: Each scoped client has its own token context
 - **Isolation**: Changes to one scoped client don't affect others
-- **Convenience**: No need to pass token explicitly for each call
+- **Convenience**: Token is managed internally, no need to pass it explicitly
 - **Cacheable**: You can cache scoped clients per user for better performance
 
 ## Configuration
@@ -220,8 +217,8 @@ use baidu_netdisk_sdk::BaiduNetDiskClient;
 let client = BaiduNetDiskClient::builder().build()?;
 client.load_token_from_env()?;
 
-// Simple upload - using shortcut API (no explicit token required)
-let response = client.upload_file("local_file.txt", "/remote/file.txt").await?;
+// Simple upload
+let response = client.upload().upload_file("local_file.txt", "/remote/file.txt").await?;
 
 println!("Uploaded: {} ({} bytes)", response.path, response.size);
 ```
@@ -235,7 +232,7 @@ let options = SimpleUploadOptions::default()
     .chunk_size(8 * 1024 * 1024)  // 8MB chunks
     .max_concurrency(20);         // 20 parallel uploads
 
-let response = client.upload_file_with_options("video.mp4", "/remote/video.mp4", options).await?;
+let response = client.upload().upload_file_with_options("video.mp4", "/remote/video.mp4", options).await?;
 ```
 
 #### 2. Upload from Reader
@@ -253,7 +250,7 @@ let file_size = metadata.len();
 let mut reader = BufReader::new(file);
 
 let response = client.upload()
-    .upload_reader(&token, &mut reader, file_size, "/remote/file.txt")
+    .upload_reader(&mut reader, file_size, "/remote/file.txt")
     .await?;
 ```
 
@@ -265,8 +262,7 @@ For data already in memory:
 use baidu_netdisk_sdk::BaiduNetDiskClient;
 
 let data = b"Hello, World!";
-// Using shortcut API (no explicit token required)
-let response = client.upload_bytes(data, "/remote/hello.txt").await?;
+let response = client.upload().upload_bytes(data, "/remote/hello.txt").await?;
 
 println!("Uploaded: {} bytes", response.size);
 ```
@@ -287,8 +283,10 @@ This means if an upload is interrupted, restarting will only upload the missing 
 
 ### User & Quota
 
-- `client.user().info()` - Get user info
-- `client.quota().info()` - Get storage quota
+- `client.user().get_user_info(vip_version)` - Get user info (vip_version: None or Some("v2"))
+- `client.quota().get_quota()` - Get basic storage quota
+- `client.quota().get_capacity(check_free, check_expire)` - Get detailed capacity info
+- `client.quota().get_quota_with_expire()` - Get quota with expiration check
 
 ### Playlist (`client.playlist()`)
 
@@ -435,14 +433,13 @@ This SDK provides multiple download strategies for different scenarios:
 // - < 10MB: single-threaded
 // - > 10MB: futures concurrent streaming (good performance regardless of CPU cores)
 // Note: For maximum speed, use `download_parallel` manually
-// Using shortcut API (no explicit token required)
-client.auto_download("/remote/file.zip", "./local/file.zip").await?;
+client.download().auto_download("/remote/file.zip", "./local/file.zip").await?;
 
 // For maximum speed with large files (6+ cores recommended)
-client.download_parallel("/remote/large.iso", "./local/large.iso", Some(8)).await?;
+client.download().download_parallel("/remote/large.iso", "./local/large.iso", Some(8)).await?;
 
 // For many small files or limited cores (<= 4)
-client.download_streaming("/remote/small.txt", "./local/small.txt", 4).await?;
+client.download().download_streaming("/remote/small.txt", "./local/small.txt", 4).await?;
 ```
 
 ### Not Sure Which to Use? Run the Comparison Test!
