@@ -11,7 +11,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let client = BaiduNetDiskClient::builder().build()?;
     info!("Client created successfully");
 
-    let token = client.load_token_from_env()?;
+    client.load_token_from_env()?;
     info!("Token loaded successfully");
 
     println!("=== Baidu NetDisk Download Comparison Test ===");
@@ -41,13 +41,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     println!("\n--- Step 1: Get file info for Streaming ---");
-    let file_info_streaming = client
-        .file()
-        .get_file_info(&token, remote_path_streaming)
-        .await?;
+    let file_info_streaming = client.file().get_file_info(remote_path_streaming).await?;
     let file_size_streaming = file_info_streaming.size.unwrap_or(0);
     let fs_id_streaming = file_info_streaming.fs_id.ok_or("File has no fs_id")?;
-    let file_meta_streaming = client.file().get_file_meta(&token, fs_id_streaming).await?;
+    let file_meta_streaming = client.file().get_file_meta(fs_id_streaming).await?;
 
     println!("File: {}", file_info_streaming.name);
     println!(
@@ -71,7 +68,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     client
         .download()
         .download_streaming_with_meta(
-            &token,
             &file_meta_streaming,
             Path::new(&streaming_save_path),
             concurrency,
@@ -96,13 +92,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     println!("\n--- Step 1: Get file info for Parallel ---");
-    let file_info_parallel = client
-        .file()
-        .get_file_info(&token, remote_path_parallel)
-        .await?;
+    let file_info_parallel = client.file().get_file_info(remote_path_parallel).await?;
     let file_size_parallel = file_info_parallel.size.unwrap_or(0);
     let fs_id_parallel = file_info_parallel.fs_id.ok_or("File has no fs_id")?;
-    let file_meta_parallel = client.file().get_file_meta(&token, fs_id_parallel).await?;
+    let file_meta_parallel = client.file().get_file_meta(fs_id_parallel).await?;
 
     println!("File: {}", file_info_parallel.name);
     println!(
@@ -126,7 +119,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     client
         .download()
         .download_parallel_multi_threaded(
-            &token,
             &file_meta_parallel,
             Path::new(&parallel_save_path),
             Some(thread_num),
