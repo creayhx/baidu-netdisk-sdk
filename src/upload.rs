@@ -36,11 +36,11 @@
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = BaiduNetDiskClient::builder().build()?;
-//! let token = client.load_token_from_env()?;
+//! client.load_token_from_env()?;
 //!
 //! // Simple file upload
 //! let response = client.upload()
-//!     .upload_file(&token, "test.txt", "/remote/test.txt")
+//!     .upload_file("test.txt", "/remote/test.txt")
 //!     .await?;
 //!
 //! println!("Uploaded: {} ({} bytes)", response.path, response.size);
@@ -54,25 +54,30 @@
 //! - [`UploadClient::precreate`] - Start upload session
 //! - [`UploadClient::upload_chunks_parallel`] - Upload specific chunks
 //! - [`UploadClient::create_file`] - Complete the upload
-use crate::auth::AccessToken;
+use crate::client::TokenGetter;
 use crate::errors::{NetDiskError, NetDiskResult};
 use crate::http::HttpClient;
 use futures::stream::{self, StreamExt};
 use log::debug;
 use serde::Deserialize;
+use std::sync::Arc;
 
 /// Upload client for Baidu NetDisk
 #[derive(Debug, Clone)]
 pub struct UploadClient {
     http_client: HttpClient,
+    token_getter: Arc<dyn TokenGetter>,
 }
 
 impl UploadClient {
     /// Create a new UploadClient instance
     ///
     /// Usually you don't need to call this directly - use BaiduNetDiskClient::upload() instead.
-    pub fn new(http_client: HttpClient) -> Self {
-        Self { http_client }
+    pub fn new(http_client: HttpClient, token_getter: Arc<dyn TokenGetter>) -> Self {
+        Self {
+            http_client,
+            token_getter,
+        }
     }
 
     /// Get a reference to the internal HTTP client
@@ -84,11 +89,8 @@ impl UploadClient {
     ///
     /// Initiates an upload session and checks which chunks (if any) already exist on the server.
     /// This is the first step of the multi-step upload process.
-    pub async fn precreate(
-        &self,
-        access_token: &AccessToken,
-        options: PrecreateOptions,
-    ) -> NetDiskResult<PrecreateResponse> {
+    pub async fn precreate(&self, options: PrecreateOptions) -> NetDiskResult<PrecreateResponse> {
+        let token = self.token_getter.get_token().await?;
         let block_list_json =
             serde_json::to_string(&options.block_list).map_err(|e| NetDiskError::Unknown {
                 message: format!("Failed to serialize block_list: {}", e),
@@ -96,7 +98,7 @@ impl UploadClient {
 
         let params = vec![
             ("method", "precreate"),
-            ("access_token", access_token.access_token.as_str()),
+            ("access_token", token.access_token.as_str()),
         ];
 
         let size_str = options.size.to_string();
@@ -331,10 +333,10 @@ impl UploadClient {
     /// use baidu_netdisk_sdk::BaiduNetDiskClient;
     ///
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// let response = client.upload()
-    ///     .locate_upload(&token, "/apps/appName/filename.jpg", "P1-MTAuMjI4LjQzLjMxOjE1OTU4NTg==")
+    ///     .locate_upload("/apps/appName/filename.jpg", "P1-MTAuMjI4LjQzLjMxOjE1OTU4NTg==")
     ///     .await?;
     ///
     /// // Get the first HTTPS server (recommended by Baidu for optimal performance)
@@ -346,13 +348,14 @@ impl UploadClient {
     /// ```
     pub async fn locate_upload(
         &self,
-        access_token: &AccessToken,
         path: &str,
         uploadid: &str,
     ) -> NetDiskResult<LocateUploadResponse> {
+        let token = self.token_getter.get_token().await?;
+
         let url = format!(
             "https://d.pcs.baidu.com/rest/2.0/pcs/file?method=locateupload&appid=250528&access_token={}&path={}&uploadid={}&upload_version=2.0",
-            urlencoding::encode(&access_token.access_token),
+            urlencoding::encode(&token.access_token),
             urlencoding::encode(path),
             urlencoding::encode(uploadid)
         );
@@ -362,7 +365,10 @@ impl UploadClient {
         let response: LocateUploadResponse = self.http_client.get(&url, None).await?;
 
         if response.error_code != 0 {
-            return Err(NetDiskError::api_error(response.error_code, &response.error_msg));
+            return Err(NetDiskError::api_error(
+                response.error_code,
+                &response.error_msg,
+            ));
         }
 
         debug!(
@@ -379,15 +385,16 @@ impl UploadClient {
     /// If `server_url` is not provided, the default server `https://c3.pcs.baidu.com` will be used.
     pub async fn upload_chunk(
         &self,
-        access_token: &AccessToken,
         options: UploadChunkOptions,
         server_url: Option<&str>,
     ) -> NetDiskResult<UploadChunkResponse> {
+        let token = self.token_getter.get_token().await?;
+
         let server = server_url.unwrap_or("https://c3.pcs.baidu.com");
         let url = format!(
             "{}/rest/2.0/pcs/superfile2?method=upload&access_token={}&type=tmpfile&path={}&uploadid={}&partseq={}",
             server,
-            urlencoding::encode(&access_token.access_token),
+            urlencoding::encode(&token.access_token),
             urlencoding::encode(&options.path),
             urlencoding::encode(&options.uploadid),
             options.partseq
@@ -420,15 +427,15 @@ impl UploadClient {
     /// If `server_url` is not provided, the default server `https://c3.pcs.baidu.com` will be used.
     pub async fn upload_chunks_parallel(
         &self,
-        access_token: &AccessToken,
         remote_path: &str,
         uploadid: &str,
         chunks: Vec<(u32, Vec<u8>)>,
         max_concurrency: usize,
         server_url: Option<&str>,
     ) -> NetDiskResult<Vec<(u32, String)>> {
+        let token = self.token_getter.get_token().await?;
         let server = server_url.unwrap_or("https://c3.pcs.baidu.com").to_string();
-        
+
         debug!(
             "Uploading {} chunks in parallel (max_concurrency: {}, server: {})",
             chunks.len(),
@@ -436,7 +443,7 @@ impl UploadClient {
             server
         );
 
-        let access_token_str = access_token.access_token.clone();
+        let access_token_str = token.access_token;
         let remote_path_str = remote_path.to_string();
         let uploadid_str = uploadid.to_string();
         let http_client = self.http_client.clone();
@@ -491,9 +498,9 @@ impl UploadClient {
     /// This is the final step of the upload process, which merges all uploaded chunks into a single file.
     pub async fn create_file(
         &self,
-        access_token: &AccessToken,
         options: CreateFileOptions,
     ) -> NetDiskResult<CreateFileResponse> {
+        let token = self.token_getter.get_token().await?;
         let block_list_json =
             serde_json::to_string(&options.block_list).map_err(|e| NetDiskError::Unknown {
                 message: format!("Failed to serialize block_list: {}", e),
@@ -501,7 +508,7 @@ impl UploadClient {
 
         let params = vec![
             ("method", "create"),
-            ("access_token", access_token.access_token.as_str()),
+            ("access_token", token.access_token.as_str()),
         ];
 
         let size_str = options.size.to_string();
@@ -775,10 +782,10 @@ impl UploadClient {
     /// use baidu_netdisk_sdk::BaiduNetDiskClient;
     ///
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// let response = client.upload()
-    ///     .upload_file(&token, "test.txt", "/remote/test.txt")
+    ///     .upload_file("test.txt", "/remote/test.txt")
     ///     .await?;
     ///
     /// println!("Uploaded: {} ({} bytes)", response.path, response.size);
@@ -793,17 +800,11 @@ impl UploadClient {
     /// - [`UploadClient::upload_bytes`] for uploading data already in memory
     pub async fn upload_file<P: AsRef<std::path::Path>>(
         &self,
-        access_token: &AccessToken,
         local_path: P,
         remote_path: &str,
     ) -> NetDiskResult<CreateFileResponse> {
-        self.upload_file_with_options(
-            access_token,
-            local_path,
-            remote_path,
-            SimpleUploadOptions::default(),
-        )
-        .await
+        self.upload_file_with_options(local_path, remote_path, SimpleUploadOptions::default())
+            .await
     }
 
     /// Upload a file from local path with custom options
@@ -820,14 +821,14 @@ impl UploadClient {
     /// use baidu_netdisk_sdk::{BaiduNetDiskClient, upload::SimpleUploadOptions};
     ///
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// let options = SimpleUploadOptions::default()
     ///     .chunk_size(8 * 1024 * 1024)  // 8MB chunks
     ///     .max_concurrency(20);         // 20 parallel uploads
     ///
     /// let response = client.upload()
-    ///     .upload_file_with_options(&token, "large_video.mp4", "/remote/video.mp4", options)
+    ///     .upload_file_with_options("large_video.mp4", "/remote/video.mp4", options)
     ///     .await?;
     ///
     /// println!("Uploaded: {}", response.path);
@@ -836,7 +837,6 @@ impl UploadClient {
     /// ```
     pub async fn upload_file_with_options<P: AsRef<std::path::Path>>(
         &self,
-        access_token: &AccessToken,
         local_path: P,
         remote_path: &str,
         options: SimpleUploadOptions,
@@ -861,7 +861,7 @@ impl UploadClient {
         debug!("File opened successfully: {} bytes", file_size);
 
         let mut reader = std::io::BufReader::new(file);
-        self.upload_reader_with_options(access_token, &mut reader, file_size, remote_path, options)
+        self.upload_reader_with_options(&mut reader, file_size, remote_path, options)
             .await
     }
 
@@ -881,7 +881,7 @@ impl UploadClient {
     /// use std::io::BufReader;
     ///
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// let file = std::fs::File::open("test.txt")?;
     /// let metadata = file.metadata()?;
@@ -891,7 +891,7 @@ impl UploadClient {
     /// let mut reader = reader;  // mutable for rewind
     ///
     /// let response = client.upload()
-    ///     .upload_reader(&token, &mut reader, file_size, "/remote/test.txt")
+    ///     .upload_reader(&mut reader, file_size, "/remote/test.txt")
     ///     .await?;
     ///
     /// println!("Uploaded: {}", response.path);
@@ -905,13 +905,11 @@ impl UploadClient {
     /// approximately 80MB by default, regardless of file size.
     pub async fn upload_reader<R: std::io::Read + std::io::Seek>(
         &self,
-        access_token: &AccessToken,
         reader: &mut R,
         file_size: u64,
         remote_path: &str,
     ) -> NetDiskResult<CreateFileResponse> {
         self.upload_reader_with_options(
-            access_token,
             reader,
             file_size,
             remote_path,
@@ -929,7 +927,7 @@ impl UploadClient {
     /// use baidu_netdisk_sdk::{BaiduNetDiskClient, upload::SimpleUploadOptions};
     ///
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// let options = SimpleUploadOptions::default()
     ///     .chunk_size(8 * 1024 * 1024)
@@ -941,7 +939,7 @@ impl UploadClient {
     ///
     /// let mut reader = std::io::BufReader::new(file);
     /// let response = client.upload()
-    ///     .upload_reader_with_options(&token, &mut reader, file_size, "/remote/test.txt", options)
+    ///     .upload_reader_with_options(&mut reader, file_size, "/remote/test.txt", options)
     ///     .await?;
     ///
     /// println!("Uploaded: {}", response.path);
@@ -950,7 +948,6 @@ impl UploadClient {
     /// ```
     pub async fn upload_reader_with_options<R: std::io::Read + std::io::Seek>(
         &self,
-        access_token: &AccessToken,
         reader: &mut R,
         file_size: u64,
         remote_path: &str,
@@ -997,7 +994,7 @@ impl UploadClient {
         let precreate_options =
             PrecreateOptions::new(remote_path, file_size, block_list.clone()).rtype(r#type);
 
-        let precreate_response = self.precreate(access_token, precreate_options).await?;
+        let precreate_response = self.precreate(precreate_options).await?;
 
         let missing_blocks: Vec<u32> = precreate_response.block_list;
         debug!(
@@ -1008,13 +1005,10 @@ impl UploadClient {
         if !missing_blocks.is_empty() {
             // Get upload server domain dynamically
             let locate_response = self
-                .locate_upload(access_token, remote_path, &precreate_response.uploadid)
+                .locate_upload(remote_path, &precreate_response.uploadid)
                 .await?;
             let upload_server = locate_response.get_first_https_server();
-            debug!(
-                "Located upload server: {:?}",
-                upload_server
-            );
+            debug!("Located upload server: {:?}", upload_server);
 
             let missing_blocks_set: std::collections::HashSet<u32> =
                 missing_blocks.into_iter().collect();
@@ -1052,7 +1046,6 @@ impl UploadClient {
                 {
                     let batch_results = self
                         .upload_chunks_parallel(
-                            access_token,
                             remote_path,
                             &precreate_response.uploadid,
                             std::mem::take(&mut pending_chunks),
@@ -1081,7 +1074,7 @@ impl UploadClient {
             )
             .rtype(r#type);
 
-            self.create_file(access_token, create_options).await
+            self.create_file(create_options).await
         } else {
             let create_options = CreateFileOptions::new(
                 remote_path,
@@ -1091,7 +1084,7 @@ impl UploadClient {
             )
             .rtype(r#type);
 
-            self.create_file(access_token, create_options).await
+            self.create_file(create_options).await
         }
     }
 
@@ -1108,11 +1101,11 @@ impl UploadClient {
     /// use baidu_netdisk_sdk::BaiduNetDiskClient;
     ///
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// let data = b"Hello, World!";
     /// let response = client.upload()
-    ///     .upload_bytes(&token, data, "/remote/hello.txt")
+    ///     .upload_bytes(data, "/remote/hello.txt")
     ///     .await?;
     ///
     /// println!("Uploaded: {}", response.path);
@@ -1126,17 +1119,11 @@ impl UploadClient {
     /// For large files, use [`UploadClient::upload_file`] which streams from disk.
     pub async fn upload_bytes(
         &self,
-        access_token: &AccessToken,
         data: &[u8],
         remote_path: &str,
     ) -> NetDiskResult<CreateFileResponse> {
-        self.upload_bytes_with_options(
-            access_token,
-            data,
-            remote_path,
-            SimpleUploadOptions::default(),
-        )
-        .await
+        self.upload_bytes_with_options(data, remote_path, SimpleUploadOptions::default())
+            .await
     }
 
     /// Upload bytes from memory with custom options
@@ -1148,7 +1135,7 @@ impl UploadClient {
     /// use baidu_netdisk_sdk::{BaiduNetDiskClient, upload::SimpleUploadOptions};
     ///
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// let options = SimpleUploadOptions::default()
     ///     .chunk_size(8 * 1024 * 1024)
@@ -1156,7 +1143,7 @@ impl UploadClient {
     ///
     /// let data = b"Hello, World!";
     /// let response = client.upload()
-    ///     .upload_bytes_with_options(&token, data, "/remote/hello.txt", options)
+    ///     .upload_bytes_with_options(data, "/remote/hello.txt", options)
     ///     .await?;
     ///
     /// println!("Uploaded: {}", response.path);
@@ -1165,7 +1152,6 @@ impl UploadClient {
     /// ```
     pub async fn upload_bytes_with_options(
         &self,
-        access_token: &AccessToken,
         data: &[u8],
         remote_path: &str,
         options: SimpleUploadOptions,
@@ -1183,7 +1169,7 @@ impl UploadClient {
         let precreate_options =
             PrecreateOptions::new(remote_path, file_size, block_list.clone()).rtype(r#type);
 
-        let precreate_response = self.precreate(access_token, precreate_options).await?;
+        let precreate_response = self.precreate(precreate_options).await?;
 
         let missing_blocks_set: std::collections::HashSet<u32> =
             precreate_response.block_list.into_iter().collect();
@@ -1198,17 +1184,13 @@ impl UploadClient {
         if !chunks_to_upload.is_empty() {
             // Get upload server domain dynamically
             let locate_response = self
-                .locate_upload(access_token, remote_path, &precreate_response.uploadid)
+                .locate_upload(remote_path, &precreate_response.uploadid)
                 .await?;
             let upload_server = locate_response.get_first_https_server();
-            debug!(
-                "Located upload server: {:?}",
-                upload_server
-            );
+            debug!("Located upload server: {:?}", upload_server);
 
             let chunk_results = self
                 .upload_chunks_parallel(
-                    access_token,
                     remote_path,
                     &precreate_response.uploadid,
                     chunks_to_upload,
@@ -1230,7 +1212,7 @@ impl UploadClient {
             )
             .rtype(r#type);
 
-            self.create_file(access_token, create_options).await
+            self.create_file(create_options).await
         } else {
             let create_options = CreateFileOptions::new(
                 remote_path,
@@ -1240,7 +1222,7 @@ impl UploadClient {
             )
             .rtype(r#type);
 
-            self.create_file(access_token, create_options).await
+            self.create_file(create_options).await
         }
     }
 }
