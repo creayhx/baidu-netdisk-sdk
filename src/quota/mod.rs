@@ -9,14 +9,14 @@
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = BaiduNetDiskClient::builder().build()?;
-//! let token = client.load_token_from_env()?;
+//! client.load_token_from_env()?;
 //!
 //! // Get basic quota info
-//! let quota = client.quota().get_quota(&token).await?;
+//! let quota = client.quota().get_quota().await?;
 //! println!("Total storage: {} GB", quota.total / 1024 / 1024 / 1024);
 //!
 //! // Get detailed capacity with expiration check
-//! let capacity = client.quota().get_quota_with_expire(&token).await?;
+//! let capacity = client.quota().get_capacity(true, true).await?;
 //! println!("Usage percentage: {:.1}%", capacity.usage_percentage());
 //! println!("Used: {}", capacity.format_used());
 //! # Ok(())
@@ -24,8 +24,10 @@
 //! ```
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
-use crate::auth::{AccessToken, QuotaInfo};
+use crate::auth::QuotaInfo;
+use crate::client::TokenGetter;
 use crate::errors::{NetDiskError, NetDiskResult};
 use crate::http::HttpClient;
 
@@ -33,21 +35,26 @@ use crate::http::HttpClient;
 #[derive(Debug, Clone)]
 pub struct QuotaClient {
     http_client: HttpClient,
+    token_getter: Arc<dyn TokenGetter>,
 }
 
 impl QuotaClient {
     /// Create a new QuotaClient instance
     ///
     /// Usually you don't need to call this directly - use `BaiduNetDiskClient::quota()` instead
-    pub fn new(http_client: HttpClient) -> Self {
-        QuotaClient { http_client }
+    pub fn new(http_client: HttpClient, token_getter: Arc<dyn TokenGetter>) -> Self {
+        QuotaClient {
+            http_client,
+            token_getter,
+        }
+    }
+
+    /// Get a reference to the internal HTTP client
+    pub fn http_client(&self) -> &HttpClient {
+        &self.http_client
     }
 
     /// Get user's netdisk quota information
-    ///
-    /// # Arguments
-    ///
-    /// * `access_token` - Access token for authentication
     ///
     /// # Returns
     ///
@@ -60,14 +67,16 @@ impl QuotaClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
-    /// let quota = client.quota().get_quota(&token).await?;
+    /// client.load_token_from_env()?;
+    /// let quota = client.quota().get_quota().await?;
     /// println!("Free space: {} bytes", quota.free);
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn get_quota(&self, access_token: &AccessToken) -> NetDiskResult<QuotaInfo> {
-        let params = [("access_token", access_token.access_token.as_str())];
+    pub async fn get_quota(&self) -> NetDiskResult<QuotaInfo> {
+        let token = self.token_getter.get_token().await?;
+
+        let params = [("access_token", token.access_token.as_str())];
 
         debug!("Getting quota info with params: {:?}", params);
 
@@ -90,7 +99,6 @@ impl QuotaClient {
     ///
     /// # Arguments
     ///
-    /// * `access_token` - Access token for authentication
     /// * `check_free` - Whether to check free space
     /// * `check_expire` - Whether to check expiration status
     ///
@@ -105,20 +113,21 @@ impl QuotaClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
-    /// let capacity = client.quota().get_capacity(&token, true, true).await?;
+    /// client.load_token_from_env()?;
+    /// let capacity = client.quota().get_capacity(true, true).await?;
     /// println!("Expired: {}", capacity.expire);
     /// # Ok(())
     /// # }
     /// ```
     pub async fn get_capacity(
         &self,
-        access_token: &AccessToken,
         check_free: bool,
         check_expire: bool,
     ) -> NetDiskResult<CapacityInfo> {
+        let token = self.token_getter.get_token().await?;
+
         let mut params: Vec<(&str, &str)> = Vec::new();
-        params.push(("access_token", access_token.access_token.as_str()));
+        params.push(("access_token", token.access_token.as_str()));
 
         if check_free {
             params.push(("checkfree", "1"));
@@ -149,10 +158,6 @@ impl QuotaClient {
     ///
     /// A convenience method that checks both free space and expiration
     ///
-    /// # Arguments
-    ///
-    /// * `access_token` - Access token for authentication
-    ///
     /// # Returns
     ///
     /// Returns CapacityInfo containing detailed capacity information
@@ -164,16 +169,13 @@ impl QuotaClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
-    /// let capacity = client.quota().get_quota_with_expire(&token).await?;
+    /// client.load_token_from_env()?;
+    /// let capacity = client.quota().get_quota_with_expire().await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn get_quota_with_expire(
-        &self,
-        access_token: &AccessToken,
-    ) -> NetDiskResult<CapacityInfo> {
-        self.get_capacity(access_token, true, true).await
+    pub async fn get_quota_with_expire(&self) -> NetDiskResult<CapacityInfo> {
+        self.get_capacity(true, true).await
     }
 }
 
