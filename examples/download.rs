@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Client created successfully");
 
     // Load token from environment
-    let token = client.load_token_from_env()?;
+    client.load_token_from_env()?;
     info!("Token loaded successfully");
 
     println!("=== Baidu NetDisk Download Test ===");
@@ -43,10 +43,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Press Enter to continue...");
     reader.read_line(&mut String::new())?;
 
-    let file_info = client.file().get_file_info(&token, remote_path).await?;
+    let file_info = client.file().get_file_info(remote_path).await?;
     let file_size = file_info.size.unwrap_or(0);
     let fs_id = file_info.fs_id.ok_or_else(|| "File has no fs_id")?;
-    let file_meta = client.file().get_file_meta(&token, fs_id).await?;
+    let file_meta = client.file().get_file_meta(fs_id).await?;
 
     println!("File Info:");
     println!("  Name: {}", file_info.name);
@@ -74,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         match client
             .download()
-            .download_single(&token, remote_path, &single_save_path)
+            .download_single(remote_path, &single_save_path)
             .await
         {
             Ok(_) => {
@@ -96,7 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match client
         .download()
-        .download_parallel_multi_threaded(&token, &file_meta, &parallel_save_path, Some(12))
+        .download_parallel_multi_threaded(&file_meta, &parallel_save_path, Some(12))
         .await
     {
         Ok(_) => {
@@ -117,7 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match client
         .download()
-        .auto_download(&token, remote_path, &auto_save_path)
+        .auto_download(remote_path, &auto_save_path)
         .await
     {
         Ok(_) => {
