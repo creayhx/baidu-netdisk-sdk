@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Client created successfully");
 
     // Load token from environment variables
-    let token = client.load_token_from_env()?;
+    client.load_token_from_env()?;
     info!("Token loaded successfully");
 
     // === Part 1: Get Playlist List ===
@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("This will fetch all playlists from your Baidu NetDisk");
     wait_for_enter();
 
-    let playlists = match client.playlist().get_playlist_list(&token).await {
+    let playlists = match client.playlist().get_playlist_list().await {
         Ok(pl) => {
             println!("✓ Successfully retrieved playlist list!");
             println!(
@@ -89,11 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("\nGetting files from playlist with mb_id: {}", mb_id);
         wait_for_enter();
 
-        match client
-            .playlist()
-            .get_playlist_file_list(&token, mb_id)
-            .await
-        {
+        match client.playlist().get_playlist_file_list(mb_id).await {
             Ok(pl_files) => {
                 println!("✓ Successfully retrieved playlist file list!");
                 println!(
@@ -185,7 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Try to get m3u8 content directly
             match client
                 .playlist()
-                .get_media_m3u8_content(&token, &target_path, &media_type)
+                .get_media_m3u8_content(&target_path, &media_type)
                 .await
             {
                 Ok(content) => {
@@ -293,11 +289,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Getting m3u8...");
                 wait_for_enter();
 
-                match client
-                    .playlist()
-                    .get_video_m3u8(&token, enum_path, quality)
-                    .await
-                {
+                match client.playlist().get_video_m3u8(enum_path, quality).await {
                     Ok(content) => {
                         println!("✓ Successfully got m3u8 content!");
                         println!("  Length: {} bytes", content.len());
