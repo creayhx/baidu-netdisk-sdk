@@ -8,7 +8,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = BaiduNetDiskClient::builder().build()?;
     info!("Client created successfully");
 
-    let token = client.load_token_from_env()?;
+    client.load_token_from_env()?;
     info!("Token loaded successfully");
 
     let args: Vec<String> = std::env::args().collect();
@@ -28,10 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let start_time = std::time::Instant::now();
 
-    let response = client
-        .upload()
-        .upload_bytes(&token, test_data, remote_path)
-        .await?;
+    let response = client.upload().upload_bytes(test_data, remote_path).await?;
 
     println!("Bytes uploaded successfully!");
     println!("  FS ID: {}", response.fs_id);
