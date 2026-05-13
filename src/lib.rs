@@ -52,7 +52,7 @@ pub mod upload;
 pub mod user;
 
 pub use crate::auth::{AccessToken, DeviceCode, QuotaInfo, TokenStatus, UserInfo};
-pub use crate::client::{BaiduNetDiskClient, NetDiskApi, TokenScopedClient};
+pub use crate::client::{BaiduNetDiskClient, TokenScopedClient};
 pub use crate::download::DownloadClient;
 pub use crate::errors::{NetDiskError, NetDiskResult};
 pub use crate::file::{
