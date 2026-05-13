@@ -13,7 +13,7 @@ use std::future::Future;
 /// - 6: Other
 /// - 7: Torrent
 use log::debug;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::query::FileInfo;
 use super::FileClient;
@@ -152,15 +152,11 @@ pub(crate) trait FileCategoryExt {
 impl FileCategoryExt for FileClient {
     async fn get_category_file_count(
         &self,
-        access_token: &AccessToken,
+        _access_token: &AccessToken,
         category: u32,
     ) -> NetDiskResult<u64> {
-        self.get_category_file_count_with_options(
-            access_token,
-            category,
-            CategoryCountOptions::default(),
-        )
-        .await
+        self.get_category_file_count_with_options(category, CategoryCountOptions::default())
+            .await
     }
 
     async fn get_category_file_count_with_options(
@@ -200,13 +196,13 @@ impl FileCategoryExt for FileClient {
 
     async fn search_category_files(
         &self,
-        access_token: &AccessToken,
+        _access_token: &AccessToken,
         category: u32,
         start: i32,
         limit: i32,
     ) -> NetDiskResult<(Vec<FileInfo>, u64)> {
         let options = CategorySearchOptions::new().start(start).limit(limit);
-        self.search_category_files_with_options(access_token, &category.to_string(), options)
+        self.search_category_files_with_options(&category.to_string(), options)
             .await
     }
 
@@ -277,16 +273,13 @@ impl FileCategoryExt for FileClient {
 
     async fn list_documents(
         &self,
-        access_token: &AccessToken,
+        _access_token: &AccessToken,
         parent_path: &str,
         page: i32,
         num: i32,
     ) -> NetDiskResult<Vec<FileInfo>> {
-        self.list_documents_with_options(
-            access_token,
-            DocumentListOptions::new(parent_path).page(page).num(num),
-        )
-        .await
+        self.list_documents_with_options(DocumentListOptions::new(parent_path).page(page).num(num))
+            .await
     }
 
     async fn list_documents_with_options(
@@ -346,16 +339,13 @@ impl FileCategoryExt for FileClient {
 
     async fn list_images(
         &self,
-        access_token: &AccessToken,
+        _access_token: &AccessToken,
         parent_path: &str,
         page: i32,
         num: i32,
     ) -> NetDiskResult<Vec<FileInfo>> {
-        self.list_images_with_options(
-            access_token,
-            ImageListOptions::new(parent_path).page(page).num(num),
-        )
-        .await
+        self.list_images_with_options(ImageListOptions::new(parent_path).page(page).num(num))
+            .await
     }
 
     async fn list_images_with_options(
@@ -415,16 +405,13 @@ impl FileCategoryExt for FileClient {
 
     async fn list_videos(
         &self,
-        access_token: &AccessToken,
+        _access_token: &AccessToken,
         parent_path: &str,
         page: i32,
         num: i32,
     ) -> NetDiskResult<Vec<FileInfo>> {
-        self.list_videos_with_options(
-            access_token,
-            VideoListOptions::new(parent_path).page(page).num(num),
-        )
-        .await
+        self.list_videos_with_options(VideoListOptions::new(parent_path).page(page).num(num))
+            .await
     }
 
     async fn list_videos_with_options(
@@ -484,16 +471,13 @@ impl FileCategoryExt for FileClient {
 
     async fn list_torrents(
         &self,
-        access_token: &AccessToken,
+        _access_token: &AccessToken,
         parent_path: &str,
         page: i32,
         num: i32,
     ) -> NetDiskResult<Vec<FileInfo>> {
-        self.list_torrents_with_options(
-            access_token,
-            BtListOptions::new(parent_path).page(page).num(num),
-        )
-        .await
+        self.list_torrents_with_options(BtListOptions::new(parent_path).page(page).num(num))
+            .await
     }
 
     async fn list_torrents_with_options(
@@ -552,7 +536,7 @@ impl FileCategoryExt for FileClient {
 }
 
 /// Options for category file count
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct CategoryCountOptions {
     pub parent_path: String,
     pub recursion: i32,
@@ -580,7 +564,7 @@ impl CategoryCountOptions {
 }
 
 /// Options for category file search
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct CategorySearchOptions {
     pub show_dir: i32,
     pub parent_path: String,
@@ -663,7 +647,7 @@ impl CategorySearchOptions {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct DocumentListOptions {
     pub parent_path: String,
     pub page: i32,
@@ -718,7 +702,7 @@ impl DocumentListOptions {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct ImageListOptions {
     pub parent_path: String,
     pub page: i32,
@@ -773,7 +757,7 @@ impl ImageListOptions {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct VideoListOptions {
     pub parent_path: String,
     pub page: i32,
@@ -828,7 +812,7 @@ impl VideoListOptions {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct BtListOptions {
     pub parent_path: String,
     pub page: i32,
@@ -877,7 +861,7 @@ impl BtListOptions {
 }
 
 /// File category enum for type-safe category selection
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 pub enum Category {
     Video = 1,
     Music = 2,
