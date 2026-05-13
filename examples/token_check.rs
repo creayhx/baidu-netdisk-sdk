@@ -19,35 +19,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test 1: Load token from environment
     println!("Test 1: Loading token from environment...");
-    let token = match client.load_token_from_env() {
-        Ok(t) => {
-            println!("✓ Token loaded successfully");
-            t
-        }
-        Err(e) => {
-            println!("✗ Failed to load token from env: {}", e);
-            println!("Creating a mock token for testing...");
+    client.load_token_from_env()?;
 
-            // Create a mock token for testing
-            let acquired_at = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-
-            AccessToken {
-                access_token: "mock_access_token".to_string(),
-                expires_in: 3600, // 1 hour
-                refresh_token: "mock_refresh_token".to_string(),
-                scope: "basic netdisk".to_string(),
-                session_key: "".to_string(),
-                session_secret: "".to_string(),
-                acquired_at,
-            }
-        }
-    };
-
-    // Set token to client
-    client.set_access_token(token.clone())?;
+    let token = client.get_valid_token().await?;
+    println!("Token loaded successfully: {}", token.access_token);
     println!();
 
     // Test 2: Check token validity
