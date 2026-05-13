@@ -10,11 +10,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = BaiduNetDiskClient::builder().build()?;
     info!("Client created successfully");
 
-    let token = client.load_token_from_env()?;
+    client.load_token_from_env()?;
     info!("Token loaded successfully");
 
     println!("1. Testing get_quota...");
-    let quota = client.quota().get_quota(&token).await?;
+    let quota = client.quota().get_quota().await?;
 
     println!("\n=== Basic Quota Information ===");
     println!(
@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     println!("\n2. Testing get_quota_with_expire...");
-    let capacity = client.quota().get_quota_with_expire(&token).await?;
+    let capacity = client.quota().get_quota_with_expire().await?;
     println!("\n=== Detailed Capacity Information ===");
     println!("Total:        {}", capacity.format_total());
     println!(
@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     println!("\n3. Testing get_capacity (check_free only)...");
-    let capacity_free = client.quota().get_capacity(&token, true, false).await?;
+    let capacity_free = client.quota().get_capacity(true, false).await?;
 
     println!("\n=== Capacity with Free Check ===");
     println!("Total:        {}", capacity_free.format_total());
@@ -54,7 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Free:         {}", capacity_free.format_free());
 
     println!("\n4. Testing get_capacity (check_expire only)...");
-    let capacity_expire = client.quota().get_capacity(&token, false, true).await?;
+    let capacity_expire = client.quota().get_capacity(false, true).await?;
 
     println!("\n=== Capacity with Expire Check ===");
     println!("Total:        {}", capacity_expire.format_total());
