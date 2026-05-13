@@ -12,23 +12,18 @@
 - **线程安全**：使用 `RwLock` 保证并发安全
 - **灵活配置**：Builder 模式便于客户端配置
 - **异步优先**：基于 `tokio` 异步运行时
-- **便捷快捷 API**：Client 已封装各子模块方法，内部自动管理 token，无需显式传递
 
 ## 安装
-
-- **异步优先**：基于 `tokio` 异步运行时
 
 添加到 `Cargo.toml`:
 
 ```toml
 [dependencies]
-baidu-netdisk-sdk = "0.1.3"
+baidu-netdisk-sdk = "0.1.4"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
 ## 快速开始
-
-> **提示**：`BaiduNetDiskClient` 已封装各子模块方法，内部自动管理 token。大部分操作可直接在 client 上调用，无需访问子模块或显式传递 token。
 
 ### 1. 创建客户端
 
@@ -63,17 +58,17 @@ let token = loop {
 ### 3. 文件操作
 
 ```rust
-// 列出目录 - 使用快捷 API（无需显式传递 token）
-let files = client.list_directory("/").await?;
+// 列出目录
+let files = client.file().list_directory("/").await?;
 
-// 搜索文件 - 使用快捷 API
-let (results, has_more) = client.search_files("文档", "/").await?;
+// 搜索文件
+let (results, has_more) = client.file().search_files("文档", "/").await?;
 
-// 上传文件 - 使用快捷 API
-client.upload_file("local/path.txt", "/remote/path.txt").await?;
+// 上传文件
+client.upload().upload_file("local/path.txt", "/remote/path.txt").await?;
 
-// 下载文件 - 使用快捷 API
-client.download_single("/remote/file.txt", "./local/file.txt").await?;
+// 下载文件
+client.download().download_single("/remote/file.txt", "./local/file.txt").await?;
 ```
 
 ### 4. TokenScopedClient 多用户场景
@@ -85,8 +80,8 @@ client.download_single("/remote/file.txt", "./local/file.txt").await?;
 let scoped_client = client.with_token(token);
 
 // 使用作用域客户端 - 令牌会自动使用
-let files = scoped_client.list_directory("/").await?;
-let quota = scoped_client.get_quota().await?;
+let files = scoped_client.file().list_directory("/").await?;
+let quota = scoped_client.quota().get_quota().await?;
 
 // 每个作用域客户端都有独立的令牌上下文
 // 多个作用域客户端可以并发使用而不会冲突
@@ -96,7 +91,7 @@ let quota = scoped_client.get_quota().await?;
 
 - **线程安全**：每个作用域客户端有独立的令牌上下文
 - **隔离性**：修改一个作用域客户端不影响其他客户端
-- **便捷性**：无需为每个调用显式传递令牌
+- **便捷性**：令牌由内部管理，无需显式传递
 - **可缓存**：可以按用户缓存作用域客户端以提高性能
 
 ## 配置
@@ -225,8 +220,8 @@ use baidu_netdisk_sdk::BaiduNetDiskClient;
 let client = BaiduNetDiskClient::builder().build()?;
 client.load_token_from_env()?;
 
-// 简单上传 - 使用快捷 API（无需显式传递 token）
-let response = client.upload_file("local_file.txt", "/remote/file.txt").await?;
+// 简单上传
+let response = client.upload().upload_file("local_file.txt", "/remote/file.txt").await?;
 
 println!("已上传: {} ({} 字节)", response.path, response.size);
 ```
@@ -240,7 +235,7 @@ let options = SimpleUploadOptions::default()
     .chunk_size(8 * 1024 * 1024)  // 8MB 分片
     .max_concurrency(20);         // 20 并发上传
 
-let response = client.upload_file_with_options("video.mp4", "/remote/video.mp4", options).await?;
+let response = client.upload().upload_file_with_options("video.mp4", "/remote/video.mp4", options).await?;
 ```
 
 #### 2. 从 Reader 上传
@@ -258,7 +253,7 @@ let file_size = metadata.len();
 let mut reader = BufReader::new(file);
 
 let response = client.upload()
-    .upload_reader(&token, &mut reader, file_size, "/remote/file.txt")
+    .upload_reader(&mut reader, file_size, "/remote/file.txt")
     .await?;
 ```
 
@@ -270,8 +265,7 @@ let response = client.upload()
 use baidu_netdisk_sdk::BaiduNetDiskClient;
 
 let data = b"Hello, World!";
-// 使用快捷 API（无需显式传递 token）
-let response = client.upload_bytes(data, "/remote/hello.txt").await?;
+let response = client.upload().upload_bytes(data, "/remote/hello.txt").await?;
 
 println!("已上传: {} 字节", response.size);
 ```
@@ -292,8 +286,10 @@ println!("已上传: {} 字节", response.size);
 
 ### 用户与配额
 
-- `client.user().info()` - 获取用户信息
-- `client.quota().info()` - 获取存储配额信息
+- `client.user().get_user_info(vip_version)` - 获取用户信息 (vip_version: None 或 Some("v2"))
+- `client.quota().get_quota()` - 获取基本存储配额
+- `client.quota().get_capacity(check_free, check_expire)` - 获取详细容量信息
+- `client.quota().get_quota_with_expire()` - 获取带过期检查的配额信息
 
 ### 播单 (`client.playlist()`)
 
@@ -447,14 +443,13 @@ cargo run --example playlist
 // - < 10MB: 单线程
 // - > 10MB: futures 并发流式下载（无论CPU核心数量都能保持良好性能）
 // 注意: 如需最大速度，请手动使用 `download_parallel`
-// 使用快捷 API（无需显式传递 token）
-client.auto_download("/remote/file.zip", "./local/file.zip").await?;
+client.download().auto_download("/remote/file.zip", "./local/file.zip").await?;
 
 // 大文件追求最大速度（推荐 6+ 核心）
-client.download_parallel("/remote/large.iso", "./local/large.iso", Some(8)).await?;
+client.download().download_parallel("/remote/large.iso", "./local/large.iso", Some(8)).await?;
 
 // 多个小文件或核心受限（<= 4）
-client.download_streaming("/remote/small.txt", "./local/small.txt", 4).await?;
+client.download().download_streaming("/remote/small.txt", "./local/small.txt", 4).await?;
 ```
 
 ### 不确定用哪个？运行对比测试！
