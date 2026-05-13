@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Client created successfully");
 
     // Load token from environment variables
-    let token = client.load_token_from_env()?;
+    client.load_token_from_env()?;
     info!("Token loaded successfully");
 
     // === Test 0: List root directory to verify permission ===
@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Listing contents of root directory: /");
     wait_for_enter();
 
-    match client.file().list_directory(&token, "/").await {
+    match client.file().list_directory("/").await {
         Ok(files) => {
             println!("✓ Successfully listed root directory!");
             println!("  Found {} items:", files.len());
@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Checking folder: {}", test_folder);
     wait_for_enter();
 
-    match client.file().get_file_info(&token, test_folder).await {
+    match client.file().get_file_info(test_folder).await {
         Ok(info) => {
             println!("✓ Folder /upload exists!");
             println!("  fs_id: {:?}", info.fs_id);
@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Listing contents of: {}", test_folder);
     wait_for_enter();
 
-    let upload_files = match client.file().list_directory(&token, test_folder).await {
+    let upload_files = match client.file().list_directory(test_folder).await {
         Ok(files) => {
             println!("✓ Directory listed successfully!");
             println!("  Found {} items:", files.len());
@@ -105,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Checking file: {}", test_file);
     wait_for_enter();
 
-    match client.file().get_file_info(&token, test_file).await {
+    match client.file().get_file_info(test_file).await {
         Ok(info) => {
             println!("✓ File {} exists!", test_file);
             println!("  fs_id: {:?}", info.fs_id);
@@ -139,7 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Creating folder: {}", test_folder_new);
     wait_for_enter();
 
-    match client.file().create_folder(&token, test_folder_new).await {
+    match client.file().create_folder(test_folder_new).await {
         Ok(folder) => {
             println!("✓ Folder created successfully!");
             println!("  fs_id: {:?}", folder.fs_id);
@@ -157,11 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Copying file: {} -> {}", test_file, test_folder_new);
     wait_for_enter();
 
-    match client
-        .file()
-        .copy_file(&token, test_file, test_folder_new)
-        .await
-    {
+    match client.file().copy_file(test_file, test_folder_new).await {
         Ok(_) => println!("✓ File copied successfully!"),
         Err(e) => {
             println!("! File copy failed: {}", e);
@@ -174,7 +170,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Listing directory: {}", test_folder_new);
     wait_for_enter();
 
-    let copied_files = match client.file().list_directory(&token, test_folder_new).await {
+    let copied_files = match client.file().list_directory(test_folder_new).await {
         Ok(files) => {
             println!("✓ Directory listed!");
             println!("  Found {} items:", files.len());
@@ -198,7 +194,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nChecking copied file: {}", test_file_new);
     wait_for_enter();
 
-    match client.file().get_file_info(&token, test_file_new).await {
+    match client.file().get_file_info(test_file_new).await {
         Ok(info) => {
             println!("✓ Copied file verified!");
             println!("  name: {}", info.name);
@@ -224,7 +220,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match client
         .file()
-        .rename(&token, test_file_new, "subscribe_renamed.json")
+        .rename(test_file_new, "subscribe_renamed.json")
         .await
     {
         Ok(_) => println!("✓ File renamed successfully!"),
@@ -241,7 +237,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match client
         .file()
-        .move_file(&token, test_file_renamed, test_folder)
+        .move_file(test_file_renamed, test_folder)
         .await
     {
         Ok(_) => println!("✓ File moved successfully!"),
@@ -257,7 +253,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Checking moved file: {}", moved_file_path);
     wait_for_enter();
 
-    match client.file().get_file_info(&token, moved_file_path).await {
+    match client.file().get_file_info(moved_file_path).await {
         Ok(info) => {
             println!("✓ Moved file verified!");
             println!("  name: {}", info.name);
@@ -274,7 +270,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Deleting file: {}", moved_file_path);
     wait_for_enter();
 
-    match client.file().delete(&token, moved_file_path).await {
+    match client.file().delete(moved_file_path).await {
         Ok(_) => println!("✓ File deleted successfully!"),
         Err(e) => {
             println!("! File deletion failed: {}", e);
@@ -287,7 +283,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Deleting empty folder: {}", test_folder_new);
     wait_for_enter();
 
-    match client.file().delete(&token, test_folder_new).await {
+    match client.file().delete(test_folder_new).await {
         Ok(_) => println!("✓ Test folder deleted successfully!"),
         Err(e) => {
             println!("! Failed to delete test folder: {}", e);
@@ -300,7 +296,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Listing final contents of: {}", test_folder);
     wait_for_enter();
 
-    match client.file().list_directory(&token, test_folder).await {
+    match client.file().list_directory(test_folder).await {
         Ok(files) => {
             println!("✓ Final directory listing:");
             println!("  Found {} items:", files.len());
