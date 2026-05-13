@@ -17,14 +17,14 @@
 //! let client = BaiduNetDiskClient::builder().build()?;
 //! client.load_token_from_env()?;
 //!
-//! // Auto download (recommended) - using shortcut API
-//! client.auto_download("/myfile.txt", "./downloaded.txt").await?;
+//! // Auto download (recommended)
+//! client.download().auto_download("/myfile.txt", "./downloaded.txt").await?;
 //!
-//! // Or use single-threaded for small files - using shortcut API
-//! client.download_single("/small.txt", "./small.txt").await?;
+//! // Or use single-threaded for small files
+//! client.download().download_single("/small.txt", "./small.txt").await?;
 //!
-//! // Or use streaming for large files - using shortcut API
-//! client.download_streaming("/large.zip", "./large.zip", 4).await?;
+//! // Or use streaming for large files
+//! client.download().download_streaming("/large.zip", "./large.zip", 4).await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -37,7 +37,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Semaphore};
 use tokio::task;
 
-use crate::auth::AccessToken;
+use crate::client::TokenGetter;
 use crate::errors::{NetDiskError, NetDiskResult};
 use crate::file::FileClient;
 use crate::file::FileMeta;
@@ -46,14 +46,18 @@ use crate::file::FileMeta;
 #[derive(Debug, Clone)]
 pub struct DownloadClient {
     file_client: Arc<FileClient>,
+    token_getter: Arc<dyn TokenGetter>,
 }
 
 impl DownloadClient {
     /// Create a new DownloadClient instance
     ///
     /// Usually you don't need to call this directly - use `BaiduNetDiskClient::download()` instead.
-    pub fn new(file_client: Arc<FileClient>) -> Self {
-        Self { file_client }
+    pub fn new(file_client: Arc<FileClient>, token_getter: Arc<dyn TokenGetter>) -> Self {
+        Self {
+            file_client,
+            token_getter,
+        }
     }
 
     /// Get download link (dlink) from file path
@@ -65,10 +69,10 @@ impl DownloadClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// let file_meta = client.download()
-    ///     .get_dlink_from_path(&token, "/myfile.txt")
+    ///     .get_dlink_from_path("/myfile.txt")
     ///     .await?;
     ///
     /// if let Some(dlink) = file_meta.dlink {
@@ -77,16 +81,12 @@ impl DownloadClient {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn get_dlink_from_path(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-    ) -> NetDiskResult<FileMeta> {
-        let file_info = self.file_client.get_file_info(access_token, path).await?;
+    pub async fn get_dlink_from_path(&self, path: &str) -> NetDiskResult<FileMeta> {
+        let file_info = self.file_client.get_file_info(path).await?;
         let fs_id = file_info
             .fs_id
             .ok_or_else(|| NetDiskError::api_error(-1, "File has no fs_id"))?;
-        self.file_client.get_file_meta(access_token, fs_id).await
+        self.file_client.get_file_meta(fs_id).await
     }
 
     /// Get download link (dlink) from file fs_id
@@ -98,20 +98,16 @@ impl DownloadClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// let file_meta = client.download()
-    ///     .get_dlink_from_fsid(&token, 123456)
+    ///     .get_dlink_from_fsid(123456)
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn get_dlink_from_fsid(
-        &self,
-        access_token: &AccessToken,
-        fs_id: u64,
-    ) -> NetDiskResult<FileMeta> {
-        self.file_client.get_file_meta(access_token, fs_id).await
+    pub async fn get_dlink_from_fsid(&self, fs_id: u64) -> NetDiskResult<FileMeta> {
+        self.file_client.get_file_meta(fs_id).await
     }
 
     /// Auto download based on file size with optimal strategy
@@ -129,23 +125,21 @@ impl DownloadClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// client.download()
-    ///     .auto_download(&token, "/myfile.txt", "./downloaded.txt")
+    ///     .auto_download("/myfile.txt", "./downloaded.txt")
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn auto_download(
         &self,
-        access_token: &AccessToken,
         path: &str,
         save_path: impl AsRef<Path>,
     ) -> NetDiskResult<()> {
-        let file_meta = self.get_dlink_from_path(access_token, path).await?;
-        self.auto_download_with_meta(access_token, &file_meta, save_path)
-            .await
+        let file_meta = self.get_dlink_from_path(path).await?;
+        self.auto_download_with_meta(&file_meta, save_path).await
     }
 
     /// Auto download based on file size with optimal strategy
@@ -153,19 +147,16 @@ impl DownloadClient {
     /// Uses file fs_id to locate the file.
     pub async fn auto_download_by_fsid(
         &self,
-        access_token: &AccessToken,
         fs_id: u64,
         save_path: impl AsRef<Path>,
     ) -> NetDiskResult<()> {
-        let file_meta = self.get_dlink_from_fsid(access_token, fs_id).await?;
-        self.auto_download_with_meta(access_token, &file_meta, save_path)
-            .await
+        let file_meta = self.get_dlink_from_fsid(fs_id).await?;
+        self.auto_download_with_meta(&file_meta, save_path).await
     }
 
     /// Auto download based on file size with optimal strategy (core implementation)
     async fn auto_download_with_meta(
         &self,
-        access_token: &AccessToken,
         file_meta: &FileMeta,
         save_path: impl AsRef<Path>,
     ) -> NetDiskResult<()> {
@@ -177,15 +168,14 @@ impl DownloadClient {
                 "File size {} bytes exceeds {} bytes, using futures concurrent download",
                 file_size, PARALLEL_THRESHOLD
             );
-            self.download_streaming_with_meta(access_token, file_meta, save_path, 4)
+            self.download_streaming_with_meta(file_meta, save_path, 4)
                 .await
         } else {
             info!(
                 "File size {} bytes, using single-threaded download",
                 file_size
             );
-            self.download_single_with_meta(access_token, file_meta, save_path)
-                .await
+            self.download_single_with_meta(file_meta, save_path).await
         }
     }
 
@@ -200,35 +190,31 @@ impl DownloadClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// client.download()
-    ///     .download_single(&token, "/small.txt", "./small.txt")
+    ///     .download_single("/small.txt", "./small.txt")
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn download_single(
         &self,
-        access_token: &AccessToken,
         path: &str,
         save_path: impl AsRef<Path>,
     ) -> NetDiskResult<()> {
-        let file_meta = self.get_dlink_from_path(access_token, path).await?;
-        self.download_single_with_meta(access_token, &file_meta, save_path)
-            .await
+        let file_meta = self.get_dlink_from_path(path).await?;
+        self.download_single_with_meta(&file_meta, save_path).await
     }
 
     /// Single-threaded download using file fs_id
     pub async fn download_single_by_fsid(
         &self,
-        access_token: &AccessToken,
         fs_id: u64,
         save_path: impl AsRef<Path>,
     ) -> NetDiskResult<()> {
-        let file_meta = self.get_dlink_from_fsid(access_token, fs_id).await?;
-        self.download_single_with_meta(access_token, &file_meta, save_path)
-            .await
+        let file_meta = self.get_dlink_from_fsid(fs_id).await?;
+        self.download_single_with_meta(&file_meta, save_path).await
     }
 
     /// Multi-threaded parallel download using producer-consumer pattern (using file path)
@@ -243,42 +229,40 @@ impl DownloadClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// // Use 4 threads (default)
     /// client.download()
-    ///     .download_parallel(&token, "/large.zip", "./large.zip", None)
+    ///     .download_parallel("/large.zip", "./large.zip", None)
     ///     .await?;
     ///
     /// // Use 8 threads
     /// client.download()
-    ///     .download_parallel(&token, "/large.zip", "./large.zip", Some(8))
+    ///     .download_parallel("/large.zip", "./large.zip", Some(8))
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn download_parallel(
         &self,
-        access_token: &AccessToken,
         path: &str,
         save_path: impl AsRef<Path>,
         thread_num: Option<usize>,
     ) -> NetDiskResult<()> {
-        let file_meta = self.get_dlink_from_path(access_token, path).await?;
-        self.download_parallel_multi_threaded(access_token, &file_meta, save_path, thread_num)
+        let file_meta = self.get_dlink_from_path(path).await?;
+        self.download_parallel_multi_threaded(&file_meta, save_path, thread_num)
             .await
     }
 
     /// Multi-threaded parallel download using producer-consumer pattern (using file fs_id)
     pub async fn download_parallel_by_fsid(
         &self,
-        access_token: &AccessToken,
         fs_id: u64,
         save_path: impl AsRef<Path>,
         thread_num: Option<usize>,
     ) -> NetDiskResult<()> {
-        let file_meta = self.get_dlink_from_fsid(access_token, fs_id).await?;
-        self.download_parallel_multi_threaded(access_token, &file_meta, save_path, thread_num)
+        let file_meta = self.get_dlink_from_fsid(fs_id).await?;
+        self.download_parallel_multi_threaded(&file_meta, save_path, thread_num)
             .await
     }
 
@@ -293,23 +277,22 @@ impl DownloadClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// client.download()
-    ///     .download_streaming(&token, "/large.zip", "./large.zip", 4)
+    ///     .download_streaming("/large.zip", "./large.zip", 4)
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn download_streaming(
         &self,
-        access_token: &AccessToken,
         path: &str,
         save_path: impl AsRef<Path>,
         max_concurrency: usize,
     ) -> NetDiskResult<()> {
-        let file_meta = self.get_dlink_from_path(access_token, path).await?;
-        self.download_streaming_with_meta(access_token, &file_meta, save_path, max_concurrency)
+        let file_meta = self.get_dlink_from_path(path).await?;
+        self.download_streaming_with_meta(&file_meta, save_path, max_concurrency)
             .await
     }
 
@@ -318,13 +301,12 @@ impl DownloadClient {
     /// Uses file fs_id to locate the file.
     pub async fn download_streaming_by_fsid(
         &self,
-        access_token: &AccessToken,
         fs_id: u64,
         save_path: impl AsRef<Path>,
         max_concurrency: usize,
     ) -> NetDiskResult<()> {
-        let file_meta = self.get_dlink_from_fsid(access_token, fs_id).await?;
-        self.download_streaming_with_meta(access_token, &file_meta, save_path, max_concurrency)
+        let file_meta = self.get_dlink_from_fsid(fs_id).await?;
+        self.download_streaming_with_meta(&file_meta, save_path, max_concurrency)
             .await
     }
 
@@ -335,19 +317,19 @@ impl DownloadClient {
     /// Accepts FileMeta directly. Most users should use download_single() instead.
     pub async fn download_single_with_meta(
         &self,
-        access_token: &AccessToken,
         file_meta: &FileMeta,
         save_path: impl AsRef<Path>,
     ) -> NetDiskResult<()> {
+        let token = self.token_getter.get_token().await?;
         let dlink = file_meta
             .dlink
             .as_ref()
             .ok_or_else(|| NetDiskError::api_error(-1, "Failed to get download link"))?;
 
         let download_url = if dlink.contains('?') {
-            format!("{}&access_token={}", dlink, access_token.access_token)
+            format!("{}&access_token={}", dlink, token.access_token)
         } else {
-            format!("{}?access_token={}", dlink, access_token.access_token)
+            format!("{}?access_token={}", dlink, token.access_token)
         };
 
         let client = reqwest::Client::new();
@@ -379,11 +361,11 @@ impl DownloadClient {
     /// Accepts FileMeta directly. Most users should use download_parallel() instead.
     pub async fn download_parallel_multi_threaded(
         &self,
-        access_token: &AccessToken,
         file_meta: &FileMeta,
         save_path: impl AsRef<Path>,
         thread_num: Option<usize>,
     ) -> NetDiskResult<()> {
+        let token = self.token_getter.get_token().await?;
         let thread_num = thread_num.unwrap_or(4);
         let max_concurrent = thread_num * 3; // concurrency = thread_num * 3
         let max_queue_chunks = max_concurrent; // queue size = concurrency (1x buffer)
@@ -397,9 +379,9 @@ impl DownloadClient {
         const CHUNK_SIZE: u64 = 4 * 1024 * 1024; // 4MB per chunk
 
         let download_url = if dlink.contains('?') {
-            format!("{}&access_token={}", dlink, access_token.access_token)
+            format!("{}&access_token={}", dlink, token.access_token)
         } else {
-            format!("{}?access_token={}", dlink, access_token.access_token)
+            format!("{}?access_token={}", dlink, token.access_token)
         };
 
         let total_chunks = file_size.div_ceil(CHUNK_SIZE);
@@ -463,20 +445,20 @@ impl DownloadClient {
     /// Accepts FileMeta directly. Most users should use download_concurrent_futures() instead.
     pub async fn download_streaming_with_meta(
         &self,
-        access_token: &AccessToken,
         file_meta: &FileMeta,
         save_path: impl AsRef<Path>,
         max_concurrency: usize,
     ) -> NetDiskResult<()> {
+        let token = self.token_getter.get_token().await?;
         let dlink = file_meta
             .dlink
             .as_ref()
             .ok_or_else(|| NetDiskError::api_error(-1, "Failed to get download link"))?;
 
         let download_url = if dlink.contains('?') {
-            format!("{}&access_token={}", dlink, access_token.access_token)
+            format!("{}&access_token={}", dlink, token.access_token)
         } else {
-            format!("{}?access_token={}", dlink, access_token.access_token)
+            format!("{}?access_token={}", dlink, token.access_token)
         };
 
         let file_size = file_meta.size.unwrap_or(0);
