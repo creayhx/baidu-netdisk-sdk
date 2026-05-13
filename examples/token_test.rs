@@ -31,7 +31,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("  Valid for: {} seconds", token.remaining_seconds());
 
     println!("\n--- Part 2: Load Token from Environment ---");
-    match client.load_token_from_env() {
+    client.load_token_from_env()?;
+
+    match client.get_valid_token().await {
         Ok(token) => {
             println!("✓ Token loaded from environment");
             println!("  Scope: {}", token.scope);
