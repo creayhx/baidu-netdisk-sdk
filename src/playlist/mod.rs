@@ -17,23 +17,24 @@
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create client and load token
 //! let client = BaiduNetDiskClient::builder().build()?;
-//! let token = client.load_token_from_env()?;
+//! client.load_token_from_env()?;
 //!
 //! // List all playlists
-//! let playlists = client.playlist().get_playlist_list(&token).await?;
+//! let playlists = client.playlist().get_playlist_list().await?;
 //!
 //! // Get media m3u8 with highest quality for VIP 2
 //! let m3u8 = client.playlist()
-//!     .get_video_m3u8_highest(&token, "/video.mp4", 2)
+//!     .get_video_m3u8_highest("/video.mp4", 2)
 //!     .await?;
 //! # Ok(())
 //! # }
 //! ```
 
 use log::{debug, error, info};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
-use crate::auth::AccessToken;
+use crate::client::TokenGetter;
 use crate::errors::{NetDiskError, NetDiskResult};
 use crate::http::HttpClient;
 
@@ -167,34 +168,33 @@ impl AudioQuality {
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = BaiduNetDiskClient::builder().build()?;
-/// let token = client.load_token_from_env()?;
+/// client.load_token_from_env()?;
 ///
 /// // Access playlist functionality
-/// let playlists = client.playlist().get_playlist_list(&token).await?;
+/// let playlists = client.playlist().get_playlist_list().await?;
 /// # Ok(())
 /// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct PlaylistClient {
     http_client: HttpClient,
+    token_getter: Arc<dyn TokenGetter>,
 }
 
 impl PlaylistClient {
     /// Create a new PlaylistClient instance
     ///
     /// Usually you don't need to call this directly - use `BaiduNetDiskClient::playlist()` instead.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use baidu_netdisk_sdk::http::{HttpClient, HttpClientConfig};
-    /// use baidu_netdisk_sdk::playlist::PlaylistClient;
-    ///
-    /// let http_client = HttpClient::new(HttpClientConfig::default()).unwrap();
-    /// let playlist_client = PlaylistClient::new(http_client);
-    /// ```
-    pub fn new(http_client: HttpClient) -> Self {
-        PlaylistClient { http_client }
+    pub fn new(http_client: HttpClient, token_getter: Arc<dyn TokenGetter>) -> Self {
+        PlaylistClient {
+            http_client,
+            token_getter,
+        }
+    }
+
+    /// Get a reference to the internal HTTP client
+    pub fn http_client(&self) -> &HttpClient {
+        &self.http_client
     }
 
     /// Get a list of playlists with default options
@@ -206,18 +206,15 @@ impl PlaylistClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
-    /// let playlists = client.playlist().get_playlist_list(&token).await?;
+    /// let playlists = client.playlist().get_playlist_list().await?;
     /// println!("Found {} playlists", playlists.list.len());
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn get_playlist_list(
-        &self,
-        access_token: &AccessToken,
-    ) -> NetDiskResult<PlaylistList> {
-        self.get_playlist_list_with_options(access_token, PlaylistListOptions::default())
+    pub async fn get_playlist_list(&self) -> NetDiskResult<PlaylistList> {
+        self.get_playlist_list_with_options(PlaylistListOptions::default())
             .await
     }
 
@@ -227,13 +224,13 @@ impl PlaylistClient {
     /// Most users should use `get_playlist_list()` instead.
     pub async fn get_playlist_list_with_options(
         &self,
-        access_token: &AccessToken,
         options: PlaylistListOptions,
     ) -> NetDiskResult<PlaylistList> {
+        let token = self.token_getter.get_token().await?;
         let mut params = Vec::new();
 
         params.push(("method", "list".to_string()));
-        params.push(("access_token", access_token.access_token.clone()));
+        params.push(("access_token", token.access_token.clone()));
 
         if let Some(p) = options.page {
             params.push(("page", p.to_string()));
@@ -277,31 +274,23 @@ impl PlaylistClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// // First get playlists to find mb_id
-    /// let playlists = client.playlist().get_playlist_list(&token).await?;
+    /// let playlists = client.playlist().get_playlist_list().await?;
     /// if let Some(playlist) = playlists.list.first() {
     ///     // Then get files in playlist
     ///     let files = client.playlist()
-    ///         .get_playlist_file_list(&token, playlist.mb_id)
+    ///         .get_playlist_file_list(playlist.mb_id)
     ///         .await?;
     ///     println!("Found {} files", files.list.len());
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn get_playlist_file_list(
-        &self,
-        access_token: &AccessToken,
-        mb_id: u64,
-    ) -> NetDiskResult<PlaylistFileList> {
-        self.get_playlist_file_list_with_options(
-            access_token,
-            mb_id,
-            PlaylistFileListOptions::default(),
-        )
-        .await
+    pub async fn get_playlist_file_list(&self, mb_id: u64) -> NetDiskResult<PlaylistFileList> {
+        self.get_playlist_file_list_with_options(mb_id, PlaylistFileListOptions::default())
+            .await
     }
 
     /// Get playlist file download list with custom options
@@ -310,13 +299,13 @@ impl PlaylistClient {
     /// Most users should use `get_playlist_file_list()` instead.
     pub async fn get_playlist_file_list_with_options(
         &self,
-        access_token: &AccessToken,
         mb_id: u64,
         options: PlaylistFileListOptions,
     ) -> NetDiskResult<PlaylistFileList> {
+        let token = self.token_getter.get_token().await?;
         let mut params = Vec::new();
 
-        params.push(("access_token", access_token.access_token.clone()));
+        params.push(("access_token", token.access_token.clone()));
         params.push(("mb_id", mb_id.to_string()));
 
         if let Some(s) = options.showmeta {
@@ -369,31 +358,31 @@ impl PlaylistClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// // Get by path
     /// let info = client.playlist()
-    ///     .get_media_play_info(&token, None, Some("/video.mp4"), "M3U8_AUTO_1080")
+    ///     .get_media_play_info(None, Some("/video.mp4"), "M3U8_AUTO_1080")
     ///     .await?;
     ///
     /// // Or get by fs_id
     /// let info = client.playlist()
-    ///     .get_media_play_info(&token, Some(123456), None, "M3U8_AUTO_1080")
+    ///     .get_media_play_info(Some(123456), None, "M3U8_AUTO_1080")
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn get_media_play_info(
         &self,
-        access_token: &AccessToken,
         fsid: Option<u64>,
         path: Option<&str>,
         media_type: &str,
     ) -> NetDiskResult<MediaPlayInfo> {
+        let token = self.token_getter.get_token().await?;
         let mut params = Vec::new();
 
         params.push(("method", "streaming".to_string()));
-        params.push(("access_token", access_token.access_token.clone()));
+        params.push(("access_token", token.access_token.clone()));
         params.push(("type", media_type.to_string()));
 
         if let Some(f) = fsid {
@@ -515,10 +504,10 @@ impl PlaylistClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// let m3u8 = client.playlist()
-    ///     .get_media_m3u8_content(&token, "/video.mp4", "M3U8_AUTO_1080")
+    ///     .get_media_m3u8_content("/video.mp4", "M3U8_AUTO_1080")
     ///     .await?;
     ///
     /// // Check if fully transcoded
@@ -528,13 +517,13 @@ impl PlaylistClient {
     /// ```
     pub async fn get_media_m3u8_content(
         &self,
-        access_token: &AccessToken,
         path: &str,
         media_type: &str,
     ) -> NetDiskResult<String> {
-        let params = vec![
+        let token = self.token_getter.get_token().await?;
+        let params = [
             ("method", "streaming".to_string()),
-            ("access_token", access_token.access_token.clone()),
+            ("access_token", token.access_token.clone()),
             ("path", path.to_string()),
             ("type", media_type.to_string()),
         ];
@@ -597,21 +586,16 @@ impl PlaylistClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// let m3u8 = client.playlist()
-    ///     .get_video_m3u8(&token, "/video.mp4", VideoQuality::Quality1080P)
+    ///     .get_video_m3u8("/video.mp4", VideoQuality::Quality1080P)
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn get_video_m3u8(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-        quality: VideoQuality,
-    ) -> NetDiskResult<String> {
-        self.get_media_m3u8_content(access_token, path, quality.to_media_type())
+    pub async fn get_video_m3u8(&self, path: &str, quality: VideoQuality) -> NetDiskResult<String> {
+        self.get_media_m3u8_content(path, quality.to_media_type())
             .await
     }
 
@@ -624,23 +608,22 @@ impl PlaylistClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// // Get highest quality for VIP 2 (1080P)
     /// let m3u8 = client.playlist()
-    ///     .get_video_m3u8_highest(&token, "/video.mp4", 2)
+    ///     .get_video_m3u8_highest("/video.mp4", 2)
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn get_video_m3u8_highest(
         &self,
-        access_token: &AccessToken,
         path: &str,
         vip_level: u32,
     ) -> NetDiskResult<String> {
         let quality = VideoQuality::highest_for_vip_level(vip_level);
-        self.get_video_m3u8(access_token, path, quality).await
+        self.get_video_m3u8(path, quality).await
     }
 
     /// Get audio m3u8 content with specified quality
@@ -653,21 +636,16 @@ impl PlaylistClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// let m3u8 = client.playlist()
-    ///     .get_audio_m3u8(&token, "/audio.mp3", AudioQuality::Quality128K)
+    ///     .get_audio_m3u8("/audio.mp3", AudioQuality::Quality128K)
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn get_audio_m3u8(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-        quality: AudioQuality,
-    ) -> NetDiskResult<String> {
-        self.get_media_m3u8_content(access_token, path, quality.to_media_type())
+    pub async fn get_audio_m3u8(&self, path: &str, quality: AudioQuality) -> NetDiskResult<String> {
+        self.get_media_m3u8_content(path, quality.to_media_type())
             .await
     }
 
@@ -680,26 +658,21 @@ impl PlaylistClient {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BaiduNetDiskClient::builder().build()?;
-    /// let token = client.load_token_from_env()?;
+    /// client.load_token_from_env()?;
     ///
     /// let m3u8 = client.playlist()
-    ///     .get_audio_m3u8_default(&token, "/audio.mp3")
+    ///     .get_audio_m3u8_default("/audio.mp3")
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn get_audio_m3u8_default(
-        &self,
-        access_token: &AccessToken,
-        path: &str,
-    ) -> NetDiskResult<String> {
-        self.get_audio_m3u8(access_token, path, AudioQuality::Quality128K)
-            .await
+    pub async fn get_audio_m3u8_default(&self, path: &str) -> NetDiskResult<String> {
+        self.get_audio_m3u8(path, AudioQuality::Quality128K).await
     }
 }
 
 /// Options for get_playlist_list
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct PlaylistListOptions {
     /// Current page number (default 1)
     pub page: Option<i32>,
@@ -727,7 +700,7 @@ impl PlaylistListOptions {
 }
 
 /// Options for get_playlist_file_list
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct PlaylistFileListOptions {
     /// Show file details (1 or 0)
     pub showmeta: Option<i32>,
@@ -763,7 +736,7 @@ impl PlaylistFileListOptions {
 }
 
 /// Playlist information
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PlaylistInfo {
     /// Playlist name
     pub name: String,
@@ -782,14 +755,14 @@ pub struct PlaylistInfo {
 }
 
 /// List of playlists
-#[derive(Debug, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PlaylistList {
     pub has_more: u32,
     pub list: Vec<PlaylistInfo>,
 }
 
 /// Playlist file information
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PlaylistFileInfo {
     /// File server ID
     pub fs_id: String,
@@ -830,14 +803,14 @@ pub struct PlaylistFileInfo {
 }
 
 /// List of playlist files
-#[derive(Debug, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PlaylistFileList {
     pub has_more: u32,
     pub list: Vec<PlaylistFileInfo>,
 }
 
 /// Media file entry for playback
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MediaFileEntry {
     /// File ID
     pub fs_id: u64,
@@ -854,7 +827,7 @@ pub struct MediaFileEntry {
 }
 
 /// Media information
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MediaInfo {
     /// Video or audio streams
     pub streams: Option<Vec<MediaStream>>,
@@ -865,7 +838,7 @@ pub struct MediaInfo {
 }
 
 /// Media stream information
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MediaStream {
     /// Stream type
     pub stream_type: Option<String>,
@@ -882,7 +855,7 @@ pub struct MediaStream {
 }
 
 /// Media file for playback
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MediaFile {
     /// File size
     pub size: u64,
@@ -901,7 +874,7 @@ pub struct MediaFile {
 }
 
 /// Video information
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct VideoInfo {
     pub width: Option<i32>,
     pub height: Option<i32>,
@@ -911,7 +884,7 @@ pub struct VideoInfo {
 }
 
 /// Audio information
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AudioInfo {
     pub duration: Option<f64>,
     pub bitrate: Option<i32>,
@@ -920,7 +893,7 @@ pub struct AudioInfo {
 }
 
 /// Media playback information
-#[derive(Debug, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MediaPlayInfo {
     pub list: Vec<MediaFileEntry>,
     pub request_id: u64,
