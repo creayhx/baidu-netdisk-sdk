@@ -19,7 +19,7 @@
 
 ```toml
 [dependencies]
-baidu-netdisk-sdk = "0.1.4"
+baidu-netdisk-sdk = "0.1.5"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
@@ -95,6 +95,49 @@ let quota = scoped_client.quota().get_quota().await?;
 - **可缓存**：可以按用户缓存作用域客户端以提高性能
 
 ## 配置
+
+### 日志
+
+本 SDK 使用 `log` crate 进行日志记录。要查看日志输出，您需要在应用程序中初始化一个日志器。
+
+**使用 `env_logger` 的示例：**
+
+```toml
+# Cargo.toml
+[dependencies]
+baidu-netdisk-sdk = "0.1.5"
+env_logger = "0.11"
+tokio = { version = "1.0", features = ["full"] }
+```
+
+```rust
+// main.rs
+fn main() {
+    // 初始化日志器
+    env_logger::init();
+    
+    // 现在 SDK 的日志将可见
+    let client = BaiduNetDiskClient::builder().build()?;
+    // ...
+}
+```
+
+通过环境变量控制日志级别：
+
+```bash
+# 显示所有 info 级别的日志
+RUST_LOG=info cargo run
+
+# 只显示此 SDK 的 debug 日志
+RUST_LOG=baidu_netdisk_sdk=debug cargo run
+
+# 显示 trace 日志以进行详细调试
+RUST_LOG=baidu_netdisk_sdk=trace cargo run
+```
+
+**可用的日志级别：** `error`, `warn`, `info`, `debug`, `trace`
+
+**注意**：如果您不初始化日志器，即使 SDK 内部生成了日志消息，也不会显示任何日志输出。
 
 ### 环境变量
 
