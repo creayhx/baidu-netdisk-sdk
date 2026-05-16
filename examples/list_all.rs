@@ -1,4 +1,4 @@
-use baidu_netdisk_sdk::{BaiduNetDiskClient, ListAllOptions};
+use baidu_netdisk_sdk::BaiduNetDiskClient;
 use log::info;
 
 fn format_size(bytes: u64) -> String {
@@ -36,21 +36,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut has_more = true;
 
     while has_more {
-        let options = ListAllOptions::new()
-            .recursion(true)
-            .order("time")
-            .desc(true)
-            .start(start)
-            .limit(page_size);
-
-        match client.file().list_all_with_options(test_dir, options).await {
-            Ok((files, more)) => {
-                has_more = more;
+        // 使用简化的 list_all 方法，默认开启递归
+        match client.file().list_all(test_dir, start, page_size).await {
+            Ok(result) => {
+                has_more = result.has_more;
 
                 println!("--- Page {} ---", page_num);
-                println!("Found {} files in this page", files.len());
+                println!("Found {} files in this page", result.list.len());
 
-                for file in &files {
+                for file in &result.list {
                     let size_str = file
                         .size
                         .map(|s| format_size(s))
@@ -61,15 +55,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("  [{}] {} ({})", file_type, file.name, size_str);
                 }
 
-                total_files += files.len();
+                total_files += result.list.len();
 
                 if has_more {
                     println!("\nPress Enter to continue to page {}...", page_num + 1);
+                    println!("Next cursor: {:?}", result.cursor);
+                    // 使用 cursor 作为下一页的 start，用户无需手动计算
+                    if let Some(cursor) = result.cursor {
+                        start = cursor as i32;
+                    }
                     let mut input = String::new();
                     std::io::stdin().read_line(&mut input)?;
                 }
-
-                start += page_size;
                 page_num += 1;
             }
             Err(e) => {
