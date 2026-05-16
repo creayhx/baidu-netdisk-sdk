@@ -19,7 +19,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-baidu-netdisk-sdk = "0.1.4"
+baidu-netdisk-sdk = "0.1.5"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
@@ -94,6 +94,49 @@ let quota = scoped_client.quota().get_quota().await?;
 - **Cacheable**: You can cache scoped clients per user for better performance
 
 ## Configuration
+
+### Logging
+
+This SDK uses the `log` crate for logging. To see log output, you need to initialize a logger in your application.
+
+**Example with `env_logger`:**
+
+```toml
+# Cargo.toml
+[dependencies]
+baidu-netdisk-sdk = "0.1.5"
+env_logger = "0.11"
+tokio = { version = "1.0", features = ["full"] }
+```
+
+```rust
+// main.rs
+fn main() {
+    // Initialize logger
+    env_logger::init();
+    
+    // Now SDK logs will be visible
+    let client = BaiduNetDiskClient::builder().build()?;
+    // ...
+}
+```
+
+Control log level via environment variable:
+
+```bash
+# Show all info logs
+RUST_LOG=info cargo run
+
+# Show debug logs only for this SDK
+RUST_LOG=baidu_netdisk_sdk=debug cargo run
+
+# Show trace logs for detailed debugging
+RUST_LOG=baidu_netdisk_sdk=trace cargo run
+```
+
+**Available log levels:** `error`, `warn`, `info`, `debug`, `trace`
+
+**Note**: If you don't initialize a logger, no log output will appear even though the SDK generates log messages internally.
 
 ### Environment Variables
 
