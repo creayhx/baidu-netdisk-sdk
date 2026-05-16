@@ -41,7 +41,8 @@ pub use category::{
 };
 pub use management::{FolderCreateOptions, FolderInfo};
 pub use query::{
-    FileInfo, FileMeta, ListAllOptions, ListOptions, SearchOptions, SemanticSearchOptions,
+    FileInfo, FileMeta, ListAllOptions, ListAllResult, ListOptions, SearchOptions,
+    SemanticSearchOptions,
 };
 
 use std::sync::Arc;
@@ -113,9 +114,12 @@ impl FileClient {
         FileQueryExt::list_directory_with_options(self, dir, options).await
     }
 
-    /// List all files recursively with default options
-    pub async fn list_all(&self, path: &str) -> NetDiskResult<(Vec<FileInfo>, bool)> {
-        FileQueryExt::list_all(self, path).await
+    /// List all files recursively with pagination
+    ///
+    /// This method defaults to recursive mode and provides simple pagination.
+    /// For advanced options, use `list_all_with_options()` instead.
+    pub async fn list_all(&self, path: &str, start: i32, limit: i32) -> NetDiskResult<ListAllResult> {
+        FileQueryExt::list_all(self, path, start, limit).await
     }
 
     /// List all files recursively with custom options
@@ -123,7 +127,7 @@ impl FileClient {
         &self,
         path: &str,
         options: ListAllOptions,
-    ) -> NetDiskResult<(Vec<FileInfo>, bool)> {
+    ) -> NetDiskResult<ListAllResult> {
         FileQueryExt::list_all_with_options(self, path, options).await
     }
 
