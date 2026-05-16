@@ -41,7 +41,16 @@ pub(crate) trait FileQueryExt {
         options: ListOptions,
     ) -> impl Future<Output = NetDiskResult<Vec<FileInfo>>> + Send;
 
-    /// List all files recursively with default options
+    /// List all files recursively with pagination
+    ///
+    /// This method defaults to recursive mode (recursion=1) and provides simple pagination.
+    /// For advanced options, use `list_all_with_options()` instead.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Directory path to list
+    /// * `start` - Start offset for pagination. For first page use 0, for subsequent pages use cursor from previous response
+    /// * `limit` - Number of items per page (default: 1000, max: 1000)
     ///
     /// # Examples
     ///
@@ -52,15 +61,24 @@ pub(crate) trait FileQueryExt {
     /// let client = BaiduNetDiskClient::builder().build()?;
     /// client.load_token_from_env()?;
     ///
-    /// let (files, has_more) = client.file().list_all("/").await?;
-    /// println!("Found {} items", files.len());
+    /// // First page
+    /// let result = client.file().list_all("/", 0, 100).await?;
+    /// println!("Found {} items", result.list.len());
+    ///
+    /// // Next page using cursor as start
+    /// if result.has_more && result.cursor.is_some() {
+    ///     let next_result = client.file().list_all("/", result.cursor.unwrap() as i32, 100).await?;
+    ///     println!("Next page: {} items", next_result.list.len());
+    /// }
     /// # Ok(())
     /// # }
     /// ```
     fn list_all(
         &self,
         path: &str,
-    ) -> impl Future<Output = NetDiskResult<(Vec<FileInfo>, bool)>> + Send;
+        start: i32,
+        limit: i32,
+    ) -> impl Future<Output = NetDiskResult<ListAllResult>> + Send;
 
     /// List all files recursively with custom options
     ///
@@ -70,7 +88,7 @@ pub(crate) trait FileQueryExt {
         &self,
         path: &str,
         options: ListAllOptions,
-    ) -> impl Future<Output = NetDiskResult<(Vec<FileInfo>, bool)>> + Send;
+    ) -> impl Future<Output = NetDiskResult<ListAllResult>> + Send;
 
     /// Get file or folder information by path
     ///
@@ -239,16 +257,19 @@ impl FileQueryExt for FileClient {
             .collect())
     }
 
-    async fn list_all(&self, path: &str) -> NetDiskResult<(Vec<FileInfo>, bool)> {
-        self.list_all_with_options(path, ListAllOptions::new())
-            .await
+    async fn list_all(&self, path: &str, start: i32, limit: i32) -> NetDiskResult<ListAllResult> {
+        let options = ListAllOptions::new()
+            .recursion(true)
+            .start(start)
+            .limit(limit);
+        self.list_all_with_options(path, options).await
     }
 
     async fn list_all_with_options(
         &self,
         path: &str,
         options: ListAllOptions,
-    ) -> NetDiskResult<(Vec<FileInfo>, bool)> {
+    ) -> NetDiskResult<ListAllResult> {
         let token = self.token_getter.get_token().await?;
         let recursion_str = options.recursion.to_string();
         let desc_str = options.desc.to_string();
@@ -300,7 +321,6 @@ impl FileQueryExt for FileClient {
         }
 
         let list = response.list.unwrap_or_default();
-        let has_more = response.has_more.unwrap_or(0) == 1;
 
         let file_info_list = list
             .into_iter()
@@ -323,7 +343,11 @@ impl FileQueryExt for FileClient {
             })
             .collect();
 
-        Ok((file_info_list, has_more))
+        Ok(ListAllResult {
+            list: file_info_list,
+            has_more: response.has_more.unwrap_or(0) == 1,
+            cursor: response.cursor,
+        })
     }
 
     async fn get_file_info(&self, path: &str) -> NetDiskResult<FileInfo> {
@@ -354,18 +378,33 @@ impl FileQueryExt for FileClient {
             .next()
             .unwrap_or(normalized_path);
 
-        // Use list_directory_with_options to get the parent directory listing
-        let files = self
-            .list_directory_with_options(&parent_path, ListOptions::default())
-            .await?;
+        // Use search API directly for better efficiency
+        // This avoids fetching up to 1000 items when we only need one
+        // Search is non-recursive to avoid rate limiting (10 requests/minute)
+        debug!(
+            "Searching for file '{}' in directory '{}'",
+            folder_name, parent_path
+        );
 
-        for item in files {
-            if item.path == normalized_path || item.name == folder_name {
-                return Ok(item);
+        let search_options = SearchOptions::new(&parent_path).recursion(false);
+
+        match self.search_files_with_options(folder_name, search_options).await {
+            Ok((search_results, _has_more)) => {
+                // Find exact match by full path
+                for item in search_results {
+                    if item.path == normalized_path {
+                        debug!("Found file via search: {}", normalized_path);
+                        return Ok(item);
+                    }
+                }
+                // If not found via search, return error
+                Err(NetDiskError::api_error(-6, "File or folder not found"))
+            }
+            Err(e) => {
+                debug!("Search failed: {}", e);
+                Err(NetDiskError::api_error(-6, "File or folder not found"))
             }
         }
-
-        Err(NetDiskError::api_error(-6, "File or folder not found"))
     }
 
     /// Get file metadata for download
@@ -639,6 +678,17 @@ impl ListOptions {
         self.showempty = if showempty { 1 } else { 0 };
         self
     }
+}
+
+/// Result of list_all operation
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ListAllResult {
+    /// File list
+    pub list: Vec<FileInfo>,
+    /// Whether there are more pages
+    pub has_more: bool,
+    /// Cursor for next page query (when has_more is true)
+    pub cursor: Option<u64>,
 }
 
 /// Options for listing all files recursively
