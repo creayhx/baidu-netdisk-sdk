@@ -19,7 +19,7 @@
 
 ```toml
 [dependencies]
-baidu-netdisk-sdk = "0.1.5"
+baidu-netdisk-sdk = "0.1.6"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
@@ -105,7 +105,7 @@ let quota = scoped_client.quota().get_quota().await?;
 ```toml
 # Cargo.toml
 [dependencies]
-baidu-netdisk-sdk = "0.1.5"
+baidu-netdisk-sdk = "0.1.6"
 env_logger = "0.11"
 tokio = { version = "1.0", features = ["full"] }
 ```

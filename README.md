@@ -19,7 +19,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-baidu-netdisk-sdk = "0.1.5"
+baidu-netdisk-sdk = "0.1.6"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
@@ -104,7 +104,7 @@ This SDK uses the `log` crate for logging. To see log output, you need to initia
 ```toml
 # Cargo.toml
 [dependencies]
-baidu-netdisk-sdk = "0.1.5"
+baidu-netdisk-sdk = "0.1.6"
 env_logger = "0.11"
 tokio = { version = "1.0", features = ["full"] }
 ```
