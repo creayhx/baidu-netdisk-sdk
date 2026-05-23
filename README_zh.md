@@ -61,6 +61,14 @@ let token = loop {
 // 列出目录
 let files = client.file().list_directory("/").await?;
 
+// 递归列出所有文件并分页
+let result = client.file().list_all("/", 0, 100).await?;
+println!("找到 {} 个条目", result.list.len());
+if result.has_more {
+    // 使用 cursor 获取下一页
+    let next_result = client.file().list_all("/", result.cursor.unwrap() as i32, 100).await?;
+}
+
 // 搜索文件
 let (results, has_more) = client.file().search_files("文档", "/").await?;
 

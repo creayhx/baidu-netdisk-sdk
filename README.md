@@ -61,6 +61,14 @@ let token = loop {
 // List directory
 let files = client.file().list_directory("/").await?;
 
+// List all files recursively with pagination
+let result = client.file().list_all("/", 0, 100).await?;
+println!("Found {} items", result.list.len());
+if result.has_more {
+    // Use cursor for next page
+    let next_result = client.file().list_all("/", result.cursor.unwrap() as i32, 100).await?;
+}
+
 // Search files
 let (results, has_more) = client.file().search_files("documents", "/").await?;
 
